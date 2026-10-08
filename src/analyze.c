@@ -20824,28 +20824,34 @@ static int poly_store_place(Compiler *c, int id, NodeKind rk, const char *nm) {
   if (cid < 0 || cid >= c->nclasses) return -1;
   return comp_cvar_owner(c, cid, nm);
 }
-/* Is the variable read `r` the one written as `in` at place `wp`
-   (poly_store_place)? */
-static int poly_store_same_var(Compiler *c, int r, NodeKind rk, const char *in, int wp) {
+static const NodeKind poly_store_reads[3] = {
+  NK_InstanceVariableReadNode, NK_ClassVariableReadNode, NK_GlobalVariableReadNode };
+/* Note in `t` each POLY ivar, class or global variable the program appends
+   to in place -- a read of it is a String mutator's receiver, or is lifted
+   for a parameter appended to (lift_poly_read) -- keyed by name and by
+   poly_store_place * 3 + its kind. One pass over the reads and the calls,
+   so a store asks in constant time rather than walking the program. */
+static void poly_store_appended_tab(Compiler *c, SbMutTab *t) {
   const NodeTable *nt = c->nt;
-  if (nt_kind(nt, r) != rk) return 0;
-  const char *rn = nt_str(nt, r, "name");
-  if (!rn || !sp_streq(rn, in)) return 0;
-  return poly_store_place(c, r, rk, rn) == wp;
-}
-/* Does the program append in place to POLY variable `in` at place `wp`
-   (poly_store_place) -- a read of it is a String mutator's receiver, or is
-   lifted for a parameter appended to (lift_poly_read)? */
-static int poly_store_appended(Compiler *c, NodeKind rk, const char *in, int wp) {
-  const NodeTable *nt = c->nt;
-  NT_FOREACH_KIND(nt, rk, r)
-    if (c->poly_strbuf_lift[r] && poly_store_same_var(c, r, rk, in, wp) && comp_ntype(c, r) == TY_POLY) return 1;
+  int n = 0;
+  for (int k = 0; k < 3; k++) { int m = 0; nt_nodes_of_kind(nt, poly_store_reads[k], &m); n += m; }
+  sb_mut_tab_init(t, n);
+  for (int k = 0; k < 3; k++) NT_FOREACH_KIND(nt, poly_store_reads[k], r) {
+    const char *rn = nt_str(nt, r, "name");
+    if (!rn || !c->poly_strbuf_lift[r] || comp_ntype(c, r) != TY_POLY) continue;
+    int p = poly_store_place(c, r, poly_store_reads[k], rn);
+    if (p >= 0) sb_mut_tab_note(t, rn, p * 3 + k, 1);
+  }
   NT_FOREACH_KIND(nt, NK_CallNode, u) {
     int r = nt_ref(nt, u, "receiver");
     if (r < 0 || !an_str_mutator_name(nt_str(nt, u, "name"))) continue;
-    if (poly_store_same_var(c, r, rk, in, wp) && comp_ntype(c, r) == TY_POLY) return 1;
+    NodeKind rk = nt_kind(nt, r);
+    int k = rk == poly_store_reads[0] ? 0 : rk == poly_store_reads[1] ? 1 : rk == poly_store_reads[2] ? 2 : -1;
+    const char *rn = k >= 0 ? nt_str(nt, r, "name") : NULL;
+    if (!rn || comp_ntype(c, r) != TY_POLY) continue;
+    int p = poly_store_place(c, r, rk, rn);
+    if (p >= 0) sb_mut_tab_note(t, rn, p * 3 + k, 1);
   }
-  return 0;
 }
 /* Lift read `a` of a POLY variable that can hold a String (poly_strbuf_lift);
    a method's own parameter read so is appended to as well, and its callers
@@ -20957,18 +20963,20 @@ static int lift_poly_alias_reads(Compiler *c, const HandleArgTab *hat) {
        lifted and a parameter x pulls its callers in. Left as a copy, the
        append landed in the variable's String only, the caller's never saw
        it, and nothing refused. */
-    static const NodeKind skinds[3][2] = {
-      { NK_InstanceVariableWriteNode, NK_InstanceVariableReadNode },
-      { NK_ClassVariableWriteNode, NK_ClassVariableReadNode },
-      { NK_GlobalVariableWriteNode, NK_GlobalVariableReadNode } };
-    for (int sk = 0; sk < 3; sk++) NT_FOREACH_KIND(nt, skinds[sk][0], w) {
+    static const NodeKind swrites[3] = {
+      NK_InstanceVariableWriteNode, NK_ClassVariableWriteNode, NK_GlobalVariableWriteNode };
+    SbMutTab appended;
+    poly_store_appended_tab(c, &appended);
+    for (int sk = 0; sk < 3; sk++) NT_FOREACH_KIND(nt, swrites[sk], w) {
       int v = nt_ref(nt, w, "value");
       const char *in = nt_str(nt, w, "name");
       if (v < 0 || !in || nt_kind(nt, v) != NK_LocalVariableReadNode || c->poly_strbuf_lift[v]) continue;
-      int wp = poly_store_place(c, w, skinds[sk][0], in);
-      if (wp < 0 || !poly_store_appended(c, skinds[sk][1], in, wp)) continue;
+      int wp = poly_store_place(c, w, swrites[sk], in);
+      signed char *hit = wp >= 0 ? sb_mut_tab_slot(&appended, in, wp * 3 + sk, 0) : NULL;
+      if (!hit || *hit != 1) continue;
       if (lift_poly_read(c, hat, &lifted, v)) round = changed = 1;
     }
+    sb_mut_tab_free(&appended);
     /* `def yl(v) = yield(v)` called `yl(x) { |t| t << s }`: the block's
        parameter is another name for the caller's variable. A `b.call(v)` on
        the method's own `&b` is spliced as the yield is. */
