@@ -17,6 +17,8 @@ seen = {}
 # Kernel's own, so a program's #class or #is_a? (or a BasicObject) does not answer
 k_class = Kernel.instance_method(:class)
 k_is_a = Kernel.instance_method(:is_a?)
+# Module's own #name: REXML::Functions defines a `name` of its own (an XPath function)
+m_name = Module.instance_method(:name)
 c_methods = {}
 c_method = lambda do |label|
   c_methods.fetch(label) do
@@ -37,7 +39,7 @@ TracePoint.new(:call) do |tp|
   next unless path
   recv = tp.self
   mod = k_is_a.bind_call(recv, Module)
-  name = (mod ? recv : k_class.bind_call(recv)).name
+  name = m_name.bind_call(mod ? recv : k_class.bind_call(recv))
   next unless name
   shown = mod ? "Class(#{name})" : name
   key = [path, loc.lineno, tp.callee_id, shown, tp.path]
