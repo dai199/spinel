@@ -227,10 +227,10 @@ module URI
     # by name, or an Array of all nine in #component's order.
     def self.build(args = nil, **kw)
       h = args.nil? ? kw : args
+      # zip, not stores into a fresh {}: building it that way breaks the
+      # typing of an app's String-keyed hashes (Campfire's request headers).
       if h.is_a?(Array) && h.size == 9
-        a = h
-        h = {}
-        [:scheme, :userinfo, :host, :port, :registry, :path, :opaque, :query, :fragment].each_with_index { |c, i| h[c] = a[i] }
+        h = [:scheme, :userinfo, :host, :port, :registry, :path, :opaque, :query, :fragment].zip(h).to_h
       elsif !h.is_a?(Hash)
         raise ArgumentError, "expected Array of or Hash of components of #{self} (#{component.join(', ')})"
       end
@@ -273,16 +273,11 @@ module URI
       h = args.nil? ? kw : args
       comps = component
       if h.is_a?(Array) && h.size == comps.size - 1
-        a = h
-        h = {}
-        comps[1..-1].each_with_index { |c, i| h[c] = a[i] }
-      elsif h.is_a?(Hash)
-        h = h.dup
-      else
+        h = comps[1..-1].zip(h).to_h
+      elsif !h.is_a?(Hash)
         raise ArgumentError, "expected Array of or Hash of components of #{self} (#{comps[1..-1].join(', ')})"
       end
-      h[:scheme] = name.sub(/\A.*::/, "").downcase
-      h
+      h.merge({ scheme: name.sub(/\A.*::/, "").downcase })
     end
 
     # The parts of the userinfo "user:password" either side of its first ":".
@@ -792,8 +787,7 @@ module URI
       path = path.start_with?("/") ? "/%2F#{path[1..-1]}" : "/#{path}"
       tc = h[:typecode]
       path = "#{path};type=#{tc}" unless tc.nil?
-      h[:path] = path
-      from_components(h)
+      from_components(h.merge({ path: path }))
     end
 
     def initialize(scheme, userinfo, host, port, path, query, fragment)
@@ -1116,14 +1110,13 @@ module URI
     # extensions]: the query drops the trailing parts not given.
     def self.build(args = nil, **kw)
       h = components_hash(args, kw)
-      h[:path] = h[:dn] unless h[:dn].nil?
+      h = h.merge({ path: h[:dn] }) unless h[:dn].nil?
       query = []
       [h[:extensions], h[:filter], h[:scope], h[:attributes]].each do |x|
         next if x.nil? && query.empty?
         query.unshift(x)
       end
-      h[:query] = query.join("?")
-      from_components(h)
+      from_components(h.merge({ query: query.join("?") }))
     end
 
     def initialize(scheme, userinfo, host, port, path, query, fragment)
@@ -1567,48 +1560,47 @@ module URI
     private
 
     def initialize_pattern(opts = {})
-      ret = {}
-      ret[:ESCAPED] = escaped = opts[:ESCAPED] || PATTERN::ESCAPED
-      ret[:UNRESERVED] = unreserved = opts[:UNRESERVED] || PATTERN::UNRESERVED
-      ret[:RESERVED] = reserved = opts[:RESERVED] || PATTERN::RESERVED
-      ret[:DOMLABEL] = opts[:DOMLABEL] || PATTERN::DOMLABEL
-      ret[:TOPLABEL] = opts[:TOPLABEL] || PATTERN::TOPLABEL
-      ret[:HOSTNAME] = hostname = opts[:HOSTNAME]
-      ret[:URIC] = uric = "(?:[#{unreserved}#{reserved}]|#{escaped})"
-      ret[:URIC_NO_SLASH] = uric_no_slash = "(?:[#{unreserved};?:@&=+$,]|#{escaped})"
-      ret[:QUERY] = query = "#{uric}*"
-      ret[:FRAGMENT] = fragment = "#{uric}*"
+      escaped = opts[:ESCAPED] || PATTERN::ESCAPED
+      unreserved = opts[:UNRESERVED] || PATTERN::UNRESERVED
+      reserved = opts[:RESERVED] || PATTERN::RESERVED
+      p_domlabel = opts[:DOMLABEL] || PATTERN::DOMLABEL
+      p_toplabel = opts[:TOPLABEL] || PATTERN::TOPLABEL
+      hostname = opts[:HOSTNAME]
+      uric = "(?:[#{unreserved}#{reserved}]|#{escaped})"
+      uric_no_slash = "(?:[#{unreserved};?:@&=+$,]|#{escaped})"
+      query = "#{uric}*"
+      fragment = "#{uric}*"
       hostname = "(?:[a-zA-Z0-9\\-.]|%\\h\\h)+" if hostname.nil?
-      ret[:HOSTNAME] = hostname
-      ret[:IPV4ADDR] = ipv4addr = "\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}"
+      p_hostname = hostname
+      ipv4addr = "\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}"
       hex4 = "[#{PATTERN::HEX}]{1,4}"
       lastpart = "(?:#{hex4}|#{ipv4addr})"
       hexseq1 = "(?:#{hex4}:)*#{hex4}"
       hexseq2 = "(?:#{hex4}:)*#{lastpart}"
-      ret[:IPV6ADDR] = ipv6addr = "(?:#{hexseq2}|(?:#{hexseq1})?::(?:#{hexseq2})?)"
-      ret[:IPV6REF] = ipv6ref = "\\[#{ipv6addr}\\]"
-      ret[:HOST] = host = "(?:#{hostname}|#{ipv4addr}|#{ipv6ref})"
-      ret[:PORT] = port = "\\d*"
-      ret[:HOSTPORT] = hostport = "#{host}(?::#{port})?"
-      ret[:USERINFO] = userinfo = "(?:[#{unreserved};:&=+$,]|#{escaped})*"
+      ipv6addr = "(?:#{hexseq2}|(?:#{hexseq1})?::(?:#{hexseq2})?)"
+      ipv6ref = "\\[#{ipv6addr}\\]"
+      host = "(?:#{hostname}|#{ipv4addr}|#{ipv6ref})"
+      port = "\\d*"
+      hostport = "#{host}(?::#{port})?"
+      userinfo = "(?:[#{unreserved};:&=+$,]|#{escaped})*"
       pchar = "(?:[#{unreserved}:@&=+$,]|#{escaped})"
       param = "#{pchar}*"
       segment = "#{pchar}*(?:;#{param})*"
-      ret[:PATH_SEGMENTS] = path_segments = "#{segment}(?:/#{segment})*"
+      path_segments = "#{segment}(?:/#{segment})*"
       server = "(?:#{userinfo}@)?#{hostport}"
-      ret[:REG_NAME] = reg_name = "(?:[#{unreserved}$,;:@&=+]|#{escaped})+"
+      reg_name = "(?:[#{unreserved}$,;:@&=+]|#{escaped})+"
       authority = "(?:#{server}|#{reg_name})"
-      ret[:REL_SEGMENT] = rel_segment = "(?:[#{unreserved};@&=+$,]|#{escaped})+"
-      ret[:SCHEME] = scheme = "[#{PATTERN::ALPHA}][\\-+.#{PATTERN::ALPHA}\\d]*"
-      ret[:ABS_PATH] = abs_path = "/#{path_segments}"
-      ret[:REL_PATH] = rel_path = "#{rel_segment}(?:#{abs_path})?"
-      ret[:NET_PATH] = net_path = "//#{authority}(?:#{abs_path})?"
-      ret[:HIER_PART] = hier_part = "(?:#{net_path}|#{abs_path})(?:\\?(?:#{query}))?"
-      ret[:OPAQUE_PART] = opaque_part = "#{uric_no_slash}#{uric}*"
-      ret[:ABS_URI] = abs_uri = "#{scheme}:(?:#{hier_part}|#{opaque_part})"
-      ret[:REL_URI] = rel_uri = "(?:#{net_path}|#{abs_path}|#{rel_path})(?:\\?#{query})?"
-      ret[:URI_REF] = "(?:#{abs_uri}|#{rel_uri})?(?:##{fragment})?"
-      ret[:X_ABS_URI] = "
+      rel_segment = "(?:[#{unreserved};@&=+$,]|#{escaped})+"
+      scheme = "[#{PATTERN::ALPHA}][\\-+.#{PATTERN::ALPHA}\\d]*"
+      abs_path = "/#{path_segments}"
+      rel_path = "#{rel_segment}(?:#{abs_path})?"
+      net_path = "//#{authority}(?:#{abs_path})?"
+      hier_part = "(?:#{net_path}|#{abs_path})(?:\\?(?:#{query}))?"
+      opaque_part = "#{uric_no_slash}#{uric}*"
+      abs_uri = "#{scheme}:(?:#{hier_part}|#{opaque_part})"
+      rel_uri = "(?:#{net_path}|#{abs_path}|#{rel_path})(?:\\?#{query})?"
+      p_uri_ref = "(?:#{abs_uri}|#{rel_uri})?(?:##{fragment})?"
+      p_x_abs_uri = "
         (#{scheme}):                           (?# 1: scheme)
         (?:
            (#{opaque_part})                    (?# 2: opaque)
@@ -1627,7 +1619,7 @@ module URI
         )
         (?:\\#(#{fragment}))?                  (?# 9: fragment)
       "
-      ret[:X_REL_URI] = "
+      p_x_rel_uri = "
         (?:
           (?:
             //
@@ -1645,29 +1637,61 @@ module URI
         (?:\\?(#{query}))?              (?# 7: query)
         (?:\\#(#{fragment}))?           (?# 8: fragment)
       "
-      ret
+      {
+        ESCAPED: escaped,
+        UNRESERVED: unreserved,
+        RESERVED: reserved,
+        DOMLABEL: p_domlabel,
+        TOPLABEL: p_toplabel,
+        HOSTNAME: p_hostname,
+        URIC: uric,
+        URIC_NO_SLASH: uric_no_slash,
+        QUERY: query,
+        FRAGMENT: fragment,
+        IPV4ADDR: ipv4addr,
+        IPV6ADDR: ipv6addr,
+        IPV6REF: ipv6ref,
+        HOST: host,
+        PORT: port,
+        HOSTPORT: hostport,
+        USERINFO: userinfo,
+        PATH_SEGMENTS: path_segments,
+        REG_NAME: reg_name,
+        REL_SEGMENT: rel_segment,
+        SCHEME: scheme,
+        ABS_PATH: abs_path,
+        REL_PATH: rel_path,
+        NET_PATH: net_path,
+        HIER_PART: hier_part,
+        OPAQUE_PART: opaque_part,
+        ABS_URI: abs_uri,
+        REL_URI: rel_uri,
+        URI_REF: p_uri_ref,
+        X_ABS_URI: p_x_abs_uri,
+        X_REL_URI: p_x_rel_uri,
+      }
     end
 
     def initialize_regexp(pattern)
-      ret = {}
-      ret[:ABS_URI] = Regexp.new('\A\s*+' + pattern[:X_ABS_URI] + '\s*\z', Regexp::EXTENDED)
-      ret[:REL_URI] = Regexp.new('\A\s*+' + pattern[:X_REL_URI] + '\s*\z', Regexp::EXTENDED)
-      ret[:URI_REF] = Regexp.new(pattern[:URI_REF])
-      ret[:ABS_URI_REF] = Regexp.new(pattern[:X_ABS_URI], Regexp::EXTENDED)
-      ret[:REL_URI_REF] = Regexp.new(pattern[:X_REL_URI], Regexp::EXTENDED)
-      ret[:ESCAPED] = Regexp.new(pattern[:ESCAPED])
-      ret[:UNSAFE] = Regexp.new("[^#{pattern[:UNRESERVED]}#{pattern[:RESERVED]}]")
-      ret[:SCHEME] = Regexp.new("\\A#{pattern[:SCHEME]}\\z")
-      ret[:USERINFO] = Regexp.new("\\A#{pattern[:USERINFO]}\\z")
-      ret[:HOST] = Regexp.new("\\A#{pattern[:HOST]}\\z")
-      ret[:PORT] = Regexp.new("\\A#{pattern[:PORT]}\\z")
-      ret[:OPAQUE] = Regexp.new("\\A#{pattern[:OPAQUE_PART]}\\z")
-      ret[:REGISTRY] = Regexp.new("\\A#{pattern[:REG_NAME]}\\z")
-      ret[:ABS_PATH] = Regexp.new("\\A#{pattern[:ABS_PATH]}\\z")
-      ret[:REL_PATH] = Regexp.new("\\A#{pattern[:REL_PATH]}\\z")
-      ret[:QUERY] = Regexp.new("\\A#{pattern[:QUERY]}\\z")
-      ret[:FRAGMENT] = Regexp.new("\\A#{pattern[:FRAGMENT]}\\z")
-      ret
+      {
+        ABS_URI: Regexp.new('\A\s*+' + pattern[:X_ABS_URI] + '\s*\z', Regexp::EXTENDED),
+        REL_URI: Regexp.new('\A\s*+' + pattern[:X_REL_URI] + '\s*\z', Regexp::EXTENDED),
+        URI_REF: Regexp.new(pattern[:URI_REF]),
+        ABS_URI_REF: Regexp.new(pattern[:X_ABS_URI], Regexp::EXTENDED),
+        REL_URI_REF: Regexp.new(pattern[:X_REL_URI], Regexp::EXTENDED),
+        ESCAPED: Regexp.new(pattern[:ESCAPED]),
+        UNSAFE: Regexp.new("[^#{pattern[:UNRESERVED]}#{pattern[:RESERVED]}]"),
+        SCHEME: Regexp.new("\\A#{pattern[:SCHEME]}\\z"),
+        USERINFO: Regexp.new("\\A#{pattern[:USERINFO]}\\z"),
+        HOST: Regexp.new("\\A#{pattern[:HOST]}\\z"),
+        PORT: Regexp.new("\\A#{pattern[:PORT]}\\z"),
+        OPAQUE: Regexp.new("\\A#{pattern[:OPAQUE_PART]}\\z"),
+        REGISTRY: Regexp.new("\\A#{pattern[:REG_NAME]}\\z"),
+        ABS_PATH: Regexp.new("\\A#{pattern[:ABS_PATH]}\\z"),
+        REL_PATH: Regexp.new("\\A#{pattern[:REL_PATH]}\\z"),
+        QUERY: Regexp.new("\\A#{pattern[:QUERY]}\\z"),
+        FRAGMENT: Regexp.new("\\A#{pattern[:FRAGMENT]}\\z"),
+      }
     end
 
     def convert_to_uri(uri)
@@ -2036,20 +2060,13 @@ module URI
 
   # The byte tables CRuby's codecs read: each byte to its "%XX" (a space
   # as "+" for www-form), and each "%XX" in any letter case to its byte.
-  TBLENCWWWCOMP_ = {}
-  TBLDECWWWCOMP_ = {}
-  256.times do |i|
-    TBLENCWWWCOMP_[i.chr] = format("%%%02X", i)
+  TBLENCURICOMP_ = (0..255).map { |i| [i.chr, format("%%%02X", i)] }.to_h
+  TBLENCWWWCOMP_ = TBLENCURICOMP_.merge({ " " => "+" })
+  TBLDECWWWCOMP_ = (0..255).flat_map do |i|
     h = i >> 4
     l = i & 15
-    TBLDECWWWCOMP_[format("%%%X%X", h, l)] = i.chr
-    TBLDECWWWCOMP_[format("%%%x%X", h, l)] = i.chr
-    TBLDECWWWCOMP_[format("%%%X%x", h, l)] = i.chr
-    TBLDECWWWCOMP_[format("%%%x%x", h, l)] = i.chr
-  end
-  TBLENCURICOMP_ = TBLENCWWWCOMP_.dup
-  TBLENCWWWCOMP_[" "] = "+"
-  TBLDECWWWCOMP_["+"] = " "
+    [format("%%%X%X", h, l), format("%%%x%X", h, l), format("%%%X%x", h, l), format("%%%x%x", h, l)].map { |k| [k, i.chr] }
+  end.to_h.merge({ "+" => " " })
 
   module Util
     # A scheme class's components from an Array (after the scheme) or a
