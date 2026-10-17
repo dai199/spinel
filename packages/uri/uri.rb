@@ -13,7 +13,6 @@
 #   answers through const_missing, and URI.parser= (which rebinds
 #   constants)
 require "socket"
-require "ipaddr"
 
 module URI
   class Error < StandardError
@@ -607,13 +606,8 @@ module URI
         elsif dothostname.end_with?(".#{p_host.downcase}")
           return false
         end
-        unless addr.nil?
-          begin
-            return false if IPAddr.new(p_host).include?(addr)
-          rescue IPAddr::InvalidAddressError
-            next
-          end
-        end
+        # CRuby's IPAddr.new(p_host).include?(addr), a host name skipped.
+        return false if !addr.nil? && URI.ip_network_include?(p_host, addr)
       end
       true
     end
@@ -1838,6 +1832,82 @@ module URI
   PARSER = RFC3986_PARSER
   Parser = RFC3986_Parser
   REGEXP = RFC2396_REGEXP
+
+  # The bytes of an IPv4 (4) or IPv6 (16) address, nil for anything else.
+  # Not IPAddr: requiring it here would load it into every program using
+  # uri, and an app's own IPAddr (a Rails runtime shim) then collides.
+  def self.ip_bytes(s)
+    if (m = /\A(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\z/.match(s))
+      b = [m[1].to_i, m[2].to_i, m[3].to_i, m[4].to_i]
+      return b.any? { |o| o > 255 } ? nil : b
+    end
+    return nil unless s.include?(":") && s =~ /\A[0-9A-Fa-f:.]+\z/
+    halves = s.split("::", -1)
+    return nil if halves.size > 2
+    groups = halves.map { |h| h.empty? ? [] : h.split(":", -1) }
+    tail = groups.last
+    v4 = nil
+    if !tail.empty? && tail.last.include?(".")
+      v4 = ip_bytes(tail.pop)
+      return nil if v4.nil? || v4.size != 4
+    end
+    words = []
+    groups.each do |g|
+      ws = []
+      g.each do |w|
+        return nil unless w =~ /\A[0-9A-Fa-f]{1,4}\z/
+        ws << w.to_i(16)
+      end
+      words << ws
+    end
+    have = words.flatten.size + (v4.nil? ? 0 : 2)
+    if halves.size == 2
+      return nil if have > 7
+      all = words[0] + Array.new(8 - have, 0) + (words[1] || [])
+    else
+      return nil if have != 8
+      all = words[0]
+    end
+    bytes = []
+    all.each { |w| bytes << (w >> 8) << (w & 0xff) }
+    bytes.concat(v4) unless v4.nil?
+    bytes
+  end
+
+  # Whether the network +net+ ("10.0.0.0/8", "fe80::/10", an address)
+  # holds the address +addr+; nil when +net+ is no address.
+  def self.ip_network_include?(net, addr)
+    base, len = net.split("/", 2)
+    nb = ip_bytes(base.to_s)
+    return nil if nb.nil?
+    bits = nb.size * 8
+    prefix = bits
+    unless len.nil?
+      if len.include?(".")
+        mask = ip_bytes(len)
+        return nil if mask.nil? || mask.size != nb.size
+        prefix = mask.map { |b| b.to_s(2).rjust(8, "0") }.join
+        return nil unless prefix =~ /\A1*0*\z/
+        prefix = prefix.count("1")
+      else
+        return nil unless len =~ /\A\d+\z/
+        prefix = len.to_i
+      end
+    end
+    return nil if prefix > bits
+    ab = ip_bytes(addr.to_s)
+    return false if ab.nil? || ab.size != nb.size
+    full = prefix / 8
+    i = 0
+    while i < full
+      return false if ab[i] != nb[i]
+      i += 1
+    end
+    rest = prefix % 8
+    return true if rest.zero?
+    m = (0xff << (8 - rest)) & 0xff
+    (ab[full] & m) == (nb[full] & m)
+  end
 
   # The user and the password either side of a userinfo's first ":".
   def self.split_userinfo(ui)
