@@ -9,8 +9,9 @@
 # What is not here is absent the way a subset is absent things, and a
 # program naming it fails to compile rather than at run time:
 #
-# * the URI.escape family CRuby removed, and the obsolete URI::ABS_PATH-
-#   style constants CRuby answers through const_missing
+# * the URI.escape family CRuby removed, the obsolete constants CRuby
+#   answers through const_missing, and URI.parser= (which rebinds
+#   constants)
 require "socket"
 require "ipaddr"
 
