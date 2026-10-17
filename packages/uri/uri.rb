@@ -10,9 +10,12 @@
 #
 # * no URI::LDAP, and no scheme registry (URI.register_scheme,
 #   URI.scheme_list) to add a class to
-# * no #merge!, #route_to, #route_from, #select, #find_proxy, URI.extract or
-#   URI.regexp; the component writers do not validate what they are given
+# * no URI.extract or URI.regexp; the component writers do not validate
+#   what they are given
 # * the URI.escape family CRuby removed is not here either
+require "socket"
+require "ipaddr"
+
 module URI
   class Error < StandardError
   end
@@ -152,13 +155,19 @@ module URI
       !absolute?
     end
 
-    # A copy with the scheme and the host in lower case, and "/" for the
-    # empty path of a URI with a host.
+    # The scheme and the host in lower case, and "/" for an empty path, in
+    # place; #normalize answers a normalized copy.
+    def normalize!
+      @path = "/" if !@path.nil? && @path.empty?
+      @scheme = @scheme.downcase unless @scheme.nil?
+      # CRuby's answer is its last statement: the host it lowered, else nil.
+      return nil if @host.nil? || @host == @host.downcase
+      @host = @host.downcase
+    end
+
     def normalize
       u = dup
-      u.scheme = @scheme.downcase unless @scheme.nil?
-      u.host = @host.downcase unless @host.nil?
-      u.path = "/" if @opaque.nil? && !@host.nil? && (@path.nil? || @path.empty?)
+      u.normalize!
       u
     end
 
@@ -291,13 +300,267 @@ module URI
 
     public
 
+    # #merge, in place: nil when it changes nothing.
+    def merge!(oth)
+      t = merge(oth)
+      return nil if self == t
+      replace!(t)
+      self
+    end
+
+    # A relative reference from +oth+ to this URI -- the inverse of #merge,
+    # `URI("http://a/b/c/d") - "http://a/b/"` is "c/d". A URI of another
+    # scheme, or on another host, comes back absolute.
+    def route_from(oth)
+      oth = URI.for_merge(oth)
+      raise BadURIError, "relative URI: #{self}" if relative?
+      raise BadURIError, "relative URI: #{oth}" if oth.relative?
+      return dup if @scheme != oth.scheme
+
+      rel = Generic.new(nil, @userinfo, @host, @port, @path, @query, @fragment)
+      rel.opaque = @opaque
+      if rel.userinfo != oth.userinfo || rel.host.to_s.downcase != oth.host.to_s.downcase || rel.port != oth.port
+        return dup if @userinfo.nil? && @host.nil?
+        rel.port = nil if rel.port == oth.default_port
+        return rel
+      end
+      rel.userinfo = nil
+      rel.host = nil
+      rel.port = nil
+      if !rel.path.nil? && rel.path == oth.path
+        rel.path = ""
+        rel.query = nil if rel.query == oth.query
+        return rel
+      elsif !rel.opaque.nil? && rel.opaque == oth.opaque
+        rel.opaque = ""
+        rel.query = nil if rel.query == oth.query
+        return rel
+      end
+      rel.path = route_from_path(oth.path.to_s, @path.to_s)
+      rel.path = "" if rel.path == "./" && !@query.nil?
+      rel
+    end
+
+    def -(oth)
+      route_from(oth)
+    end
+
+    # The reference from this URI to +oth+: `URI("http://a/b/").route_to("http://a/b/c")` is "c".
+    def route_to(oth)
+      URI.for_merge(oth).route_from(self)
+    end
+
+    # The components of this URI's class, by name: `select(:host, :port)`.
+    def select(*components)
+      components.map do |c|
+        unless component.include?(c)
+          raise ArgumentError, "expected of components of #{self.class} (#{self.class.component.join(', ')})"
+        end
+        component_value(c)
+      end
+    end
+
+    def self.component
+      [:scheme, :userinfo, :host, :port, :registry, :path, :opaque, :query, :fragment]
+    end
+
+    def component
+      self.class.component
+    end
+
+    # Generic.build from a Hash or the components in order, as CRuby's build2.
+    def self.build2(args)
+      build(args)
+    end
+
+    def self.use_registry
+      false
+    end
+
+    # A String operand of a URI operator is parsed: `"http://a/" + uri`.
+    def coerce(oth)
+      raise TypeError, "#{oth.class} can't be coerced into #{self.class}" unless oth.is_a?(String)
+      [URI.parse(oth), self]
+    end
+
+    def hierarchical?
+      !@path.nil?
+    end
+
+    def absolute
+      absolute?
+    end
+
+    def to_str
+      to_s
+    end
+
+    # The user and the password, "%XX" decoded.
+    def decoded_user
+      u = user
+      u.nil? ? nil : URI.decode_uri_component(u)
+    end
+
+    def decoded_password
+      pw = password
+      pw.nil? ? nil : URI.decode_uri_component(pw)
+    end
+
+    # The user (with the password after a ":" in it), as CRuby's #user= sets
+    # both from one string; #password= keeps the user and replaces the rest.
+    def user=(v)
+      @userinfo = v
+    end
+
+    def password=(v)
+      u = user
+      raise InvalidURIError, "password component depends user component" if u.nil?
+      @userinfo = v.nil? ? u : "#{u}:#{v}"
+    end
+
+    # The proxy +env+ names for this URI's scheme ("http_proxy", or
+    # "HTTP_PROXY"), as a URI; nil for a loopback host or one +no_proxy+
+    # excludes. Under CGI (REQUEST_METHOD set) an HTTP_PROXY is the
+    # client's Proxy header, so only the lower-case name counts, or
+    # CGI_HTTP_PROXY. CRuby resolves the host with IPSocket.getaddress,
+    # which Spinel's socket has no run-time body for: Socket.getaddrinfo.
+    def find_proxy(env = ENV)
+      raise BadURIError, "relative URI: #{self}" if relative?
+      name = "#{@scheme.downcase}_proxy"
+      proxy_uri = nil
+      if name == "http_proxy" && env.key?("REQUEST_METHOD")
+        hits = env.keys.select { |k| k =~ /\Ahttp_proxy\z/i }
+        if hits.size == 1
+          proxy_uri = env[name] if hits[0] == "http_proxy" && env["HTTP_PROXY"].nil?
+        elsif hits.size > 1
+          proxy_uri = env[name]
+        end
+        proxy_uri = env["CGI_HTTP_PROXY"] if proxy_uri.nil?
+      elsif name == "http_proxy"
+        proxy_uri = env[name]
+        if proxy_uri.nil?
+          proxy_uri = env["HTTP_PROXY"]
+          warn "The environment variable HTTP_PROXY is discouraged.  Please use http_proxy instead." unless proxy_uri.nil?
+        end
+      else
+        proxy_uri = env[name] || env[name.upcase]
+      end
+      return nil if proxy_uri.nil? || proxy_uri.empty?
+
+      addr = nil
+      h = hostname
+      unless h.nil?
+        begin
+          addr = Socket.getaddrinfo(h, nil)[0][3]
+        rescue SocketError
+          addr = nil
+        end
+        return nil if !addr.nil? && addr =~ /\A127\.|\A::1\z/
+      end
+      no_proxy = env["no_proxy"] || env["NO_PROXY"]
+      return nil if !no_proxy.nil? && !Generic.use_proxy?(h.to_s, addr, @port, no_proxy)
+      URI.parse(proxy_uri)
+    end
+
+    # false when +no_proxy+ ("example.com,.local:8080,10.0.0.0/8") names
+    # +hostname+, its domain, or a network holding +addr+.
+    def self.use_proxy?(hostname, addr, port, no_proxy)
+      hostname = hostname.downcase
+      dothostname = ".#{hostname}"
+      no_proxy.scan(/([^:,\s]+)(?::(\d+))?/) do |m|
+        p_host = m[0]
+        p_port = m[1]
+        next unless p_port.nil? || port == p_port.to_i
+        if p_host.start_with?(".")
+          return false if hostname.end_with?(p_host.downcase)
+        elsif dothostname.end_with?(".#{p_host.downcase}")
+          return false
+        end
+        unless addr.nil?
+          begin
+            return false if IPAddr.new(p_host).include?(addr)
+          rescue IPAddr::InvalidAddressError
+            next
+          end
+        end
+      end
+      true
+    end
+
     def inspect
       "#<#{self.class} #{self}>"
     end
 
+    # Equal when of the same class with the same components once normalized.
     def ==(other)
-      other.is_a?(Generic) && to_s == other.to_s
+      other.is_a?(Generic) && self.class == other.class && normalize.component_ary == other.normalize.component_ary
     end
+
+    def eql?(other)
+      other.is_a?(Generic) && self.class == other.class && component_ary == other.component_ary
+    end
+
+    def hash
+      component_ary.hash
+    end
+
+    protected
+
+    def component_ary
+      component.map { |c| component_value(c) }
+    end
+
+    # Takes every component of +oth+, a URI of this class (#merge!).
+    def replace!(oth)
+      raise ArgumentError, "expected #{self.class} object" if self.class != oth.class
+      @scheme = oth.scheme
+      @userinfo = oth.userinfo
+      @host = oth.host
+      @port = oth.port
+      @path = oth.path
+      @query = oth.query
+      @fragment = oth.fragment
+      @opaque = oth.opaque
+    end
+
+    # One component by name: what #select and #== read.
+    def component_value(c)
+      case c
+      when :scheme then @scheme
+      when :userinfo then @userinfo
+      when :host then @host
+      when :port then @port
+      when :path then @path
+      when :opaque then @opaque
+      when :query then @query
+      when :fragment then @fragment
+      else nil
+      end
+    end
+
+    private
+
+    # #route_from's path: the dot-segments that climb from the directory of
+    # +src+ to +dst+.
+    def route_from_path(src, dst)
+      return "" if dst == src
+      return dst.dup if dst =~ %r{(?:\A|/)\.\.?(?:/|\z)}
+      src_path = src.scan(%r{[^/]*/})
+      dst_path = dst.scan(%r{[^/]*/?})
+      while !dst_path.empty? && dst_path.first == src_path.first
+        src_path.shift
+        dst_path.shift
+      end
+      tmp = dst_path.join
+      if src_path.empty?
+        return "./" if tmp.empty?
+        return "./#{tmp}" if dst_path.first.include?(":")
+        return tmp
+      end
+      ("../" * src_path.size) + tmp
+    end
+
+    public
   end
 
   # `URI::HTTPS.build(host: "api.github.com", path: "/x")` -- a URI from
@@ -309,6 +572,10 @@ module URI
   class HTTP < Generic
     def self.default_port
       80
+    end
+
+    def self.component
+      [:scheme, :userinfo, :host, :port, :path, :query, :fragment]
     end
 
     def self.build(userinfo: nil, host: nil, port: nil, path: "", query: nil, fragment: nil)
@@ -355,6 +622,18 @@ module URI
       21
     end
 
+    def self.component
+      [:scheme, :userinfo, :host, :port, :path, :typecode]
+    end
+
+    protected
+
+    def component_value(c)
+      c == :typecode ? @typecode : super
+    end
+
+    public
+
     def initialize(scheme, userinfo, host, port, path, query, fragment)
       super
       @typecode = nil
@@ -385,11 +664,18 @@ module URI
   end
 
   class File < Generic
+    def self.component
+      [:scheme, :host, :path]
+    end
   end
 
   class WS < Generic
     def self.default_port
       80
+    end
+
+    def self.component
+      [:scheme, :userinfo, :host, :port, :path, :query]
     end
   end
 
@@ -402,6 +688,22 @@ module URI
   # `mailto:to?hname=hvalue&...`: the addresses before the "?", and the
   # headers after it as [name, value] pairs, both as written.
   class MailTo < Generic
+    def self.component
+      [:scheme, :to, :headers]
+    end
+
+    protected
+
+    def component_value(c)
+      case c
+      when :to then to
+      when :headers then headers
+      else super
+      end
+    end
+
+    public
+
     def to
       o = @opaque.to_s
       i = o.index("?")
