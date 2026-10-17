@@ -237,8 +237,6 @@ module URI
       from_components(h)
     end
 
-    # A URI of this class from a components Hash, a port not given being
-    # the scheme's default, as CRuby's initialize sets it.
     # A URI of this class from a components Hash, each component through
     # its checked writer in the order CRuby's build sends them (an IPv6
     # host bracketed, a port String read as a number), a port not given
@@ -257,6 +255,7 @@ module URI
       path = g.path
       path = "" if path.nil? && g.opaque.nil?
       u = new(g.scheme, g.userinfo, g.host, g.port, path, g.query, g.fragment)
+      u.check_host(u.host)
       u.set_opaque(g.opaque) unless g.opaque.nil?
       u
     end
@@ -968,7 +967,7 @@ module URI
                elsif to.is_a?(String)
                  to.dup
                else
-                 String.new
+                 +""
                end
       hs = h[:headers]
       unless hs.nil?
