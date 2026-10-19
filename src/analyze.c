@@ -33381,6 +33381,10 @@ static void check_seed_contradictions(Compiler *c) {
       v = inner;
     }
     TyKind val = infer_type(c, v);
+    /* Not a reinterpretation: the share rule boxed this String Array slot
+       (share_box_ivar_family), and its stores wrap a String Array element by
+       element, so the pin's own kind still arrives converted. */
+    if (slot == TY_POLY_ARRAY && val == TY_STR_ARRAY && (ci->ivar_elems_shared[iv] & ELEMS_POLY)) continue;
     if (!seed_contradicts(c, slot, val, 0)) continue;
     int ln  = (int)nt_int(nt, id, "node_line", 0);
     int fid = (int)nt_int(nt, id, "node_file", 0);
