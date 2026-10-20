@@ -23297,6 +23297,15 @@ static int operand_binds_user_box(Compiler *c, int v) {
          strbuf_poly_user_boxes(c, v);
 }
 
+/* --share-strings: is String operand v a boxed receiver's reader whose arms
+   box their shared fields as handles (repr_boxed_reader_handle)? Bound as
+   its bytes, the store that takes its handle read the `const char *` temp
+   as that box, and the C did not build (#9758). It is bound as the box. */
+static int operand_binds_reader_box(Compiler *c, int v) {
+  return repr_share_rule(c) && !arg_ran_first(v, 0) && repr_of(c, v).as_ty == TY_STRING &&
+         repr_boxed_reader_handle(c, v);
+}
+
 /* held[i]: is argument operand[i] (the receiver, operand 0 when has_recv,
    is never one) a new heap value only the C argument list would hold -- one
    that allocates where it stands, of a reference type, not a container
@@ -23507,7 +23516,8 @@ static int emit_operands_in_order(Compiler *c, int id, Buf *b) {
                 !arg_ran_first(operand[i], 0) && strbuf_poly_user_base(c, operand[i]) >= 0));
     int bfb = bsh || operand[i] == harg ? 0
             : operand_binds_face_box(c, operand[i]) ? 1
-            : operand_binds_identity_box(c, id, operand[i]) || operand_binds_user_box(c, operand[i]) ? 2 : 0;
+            : operand_binds_identity_box(c, id, operand[i]) || operand_binds_user_box(c, operand[i]) ||
+              operand_binds_reader_box(c, operand[i]) ? 2 : 0;
     TyKind t = operand[i] == harg || bsh ? TY_STRBUF : bfb ? TY_POLY : fr ? TY_STRING : repr_of(c, operand[i]).as_ty;
     if (t == TY_UNKNOWN || t == TY_VOID || t == TY_NIL) {
       if (unb < 0) return 0;
