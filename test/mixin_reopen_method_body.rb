@@ -5,7 +5,8 @@
 # Joinable` body right ahead of the include, so the code the program ran
 # before that (a Rails app's boot) cannot have called the method on an
 # Account. A prepend into a namespaced class (`class Turbo::Channel; prepend
-# Auth; end`) hands a call to the class's own method until it has run.
+# Auth; end`) hands a call to the class's own method until it has run, and
+# to the module from the prepend on, in the reopening's own body too.
 puts "boot"
 class Controller
   def create = Account.new.reset_join_code
@@ -34,5 +35,6 @@ end
 puts Runner.new.run(Turbo::Channel.new)
 class Turbo::Channel
   prepend Auth
+  puts Runner.new.run(Turbo::Channel.new)
 end
 puts Runner.new.run(Turbo::Channel.new)

@@ -9081,15 +9081,18 @@ static int mixin_guard_body(NodeTable *nt, int body, const char *flag, int line)
   nt_node_set_int(nt, seq, "node_line", line);
   return seq;
 }
-/* ...and the write that sets the flag, after top-level statement `late`, in
-   its file's top level */
-static void mixin_guard_flag_write(Compiler *c, int late, const char *flag) {
+/* ...and the write that sets the flag, in the reopening's body right after
+   its last receiverless `prepend`, so the body's own calls after it reach
+   the module as in CRuby */
+static void mixin_guard_flag_write(Compiler *c, int body, const char *flag) {
   NodeTable *nt = (NodeTable *)c->nt;
-  int f, rank;
-  elab_top_place(c, late, &f, &rank);
-  int root = prog_root_stmts(c, f), n = 0, j = 0;
-  const int *st = nt_arr(nt, root, "body", &n);
-  while (j < n && st[j] != late) j++;
+  int n = 0, j = -1;
+  const int *st = nt_arr(nt, body, "body", &n);
+  for (int k = 0; k < n; k++)
+    if (nt_kind(nt, st[k]) == NK_CallNode && nt_ref(nt, st[k], "receiver") < 0 &&
+        nt_str(nt, st[k], "name") && sp_streq(nt_str(nt, st[k], "name"), "prepend"))
+      j = k;
+  if (j < 0) return;
   int line = (int)nt_int(nt, st[j], "node_line", 0);
   int tv = nt_new_node(nt, "TrueNode");
   int w = nt_new_node(nt, "GlobalVariableWriteNode");
@@ -9097,13 +9100,13 @@ static void mixin_guard_flag_write(Compiler *c, int late, const char *flag) {
   nt_node_set_ref(nt, w, "value", tv);
   nt_node_set_int(nt, tv, "node_line", line);
   nt_node_set_int(nt, w, "node_line", line);
-  st = nt_arr(nt, root, "body", &n);
+  st = nt_arr(nt, body, "body", &n);
   int *ns = malloc(sizeof(int) * (size_t)(n + 1));
   if (!ns) { fprintf(stderr, "spinel: out of memory\n"); exit(1); }
   memcpy(ns, st, sizeof(int) * (size_t)(j + 1));
   ns[j + 1] = w;
   memcpy(ns + j + 2, st + j + 1, sizeof(int) * (size_t)(n - j - 1));
-  nt_node_set_arr(nt, root, "body", ns, n + 1);
+  nt_node_set_arr(nt, body, "body", ns, n + 1);
   free(ns);
   comp_gvar_intern(c, flag + 1);
   comp_grow_node_arrays(c);
@@ -9242,7 +9245,7 @@ static void process_prepend_body(Compiler *c, int ci, int body) {
       }
     }
   }
-  if (flag[0]) mixin_guard_flag_write(c, late, flag);
+  if (flag[0]) mixin_guard_flag_write(c, body, flag);
 }
 
 /* For each class, find `prepend M` in ALL class bodies, the reopenings

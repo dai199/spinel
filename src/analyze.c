@@ -43187,6 +43187,31 @@ static int mixin_event_cmp(const void *a, const void *b) {
   if (x->key != y->key) return x->key < y->key ? -1 : 1;
   return y->i - x->i;   /* one call's modules as written (the record has them last first) */
 }
+/* Does the code under `id` call `name` outside a method body (a class
+   body's `talk(c)`)? */
+static int mixin_body_calls(const NodeTable *nt, int id, const char *name) {
+  int cap = 256, top = 0, *stk = malloc(sizeof(int) * (size_t)cap), found = 0;
+  if (!stk) { fprintf(stderr, "spinel: out of memory\n"); exit(1); }
+  stk[top++] = id;
+  while (top > 0 && !found) {
+    int n = stk[--top];
+    if (n < 0 || n >= nt->count || nt_kind(nt, n) == NK_DefNode) continue;
+    found = nt_kind(nt, n) == NK_CallNode && sp_streq(nt_str(nt, n, "name"), name);
+    const SpNode *nd = &nt->nodes[n];
+    int need = top + nd->nr;
+    for (int i = 0; i < nd->na; i++) need += nd->a[i].n;
+    if (need > cap) {
+      while (need > cap) cap *= 2;
+      stk = realloc(stk, sizeof(int) * (size_t)cap);
+      if (!stk) { fprintf(stderr, "spinel: out of memory\n"); exit(1); }
+    }
+    for (int i = 0; i < nd->nr; i++) stk[top++] = nd->r[i].ref;
+    for (int i = 0; i < nd->na; i++)
+      for (int j = 0; j < nd->a[i].n; j++) stk[top++] = nd->a[i].ids[j];
+  }
+  free(stk);
+  return found;
+}
 /* Does a statement that runs code have a rank strictly between lo and hi? */
 static int mixin_runs_between(const int *run, int n, int lo, int hi) {
   for (int i = 0; i < n; i++)
@@ -43226,14 +43251,17 @@ static void refuse_mixin_after_calls(Compiler *c) {
      the record holds definitions, not which statements run code (a load's
      file's statements follow it, and run or not themselves) */
   int n = 0, *st = nev ? prog_top_seq(c, &n, NULL) : NULL, nrun = 0;
-  int *run = n ? malloc(sizeof(int) * (size_t)n) : NULL;
+  int *run = n ? malloc(sizeof(int) * 3 * (size_t)n) : NULL, *body = run ? run + n : NULL, nbody = 0;
   if (n && !run) { fprintf(stderr, "spinel: out of memory\n"); exit(1); }
   for (int q = 0; q < n; q++) {
     NodeKind qk = nt_kind(nt, st[q]);
-    if (qk == NK_ClassNode || qk == NK_ModuleNode || qk == NK_DefNode || qk == NK_LoadNode) continue;
+    if (qk == NK_DefNode || qk == NK_LoadNode) continue;
     int f, r;
     elab_top_place(c, st[q], &f, &r);
-    if (r >= 0) run[nrun++] = r;
+    if (r < 0) continue;
+    /* (a class or module body's own code: by the name it calls, below) */
+    if (qk == NK_ClassNode || qk == NK_ModuleNode) { body[2 * nbody] = r; body[2 * nbody + 1] = st[q]; nbody++; }
+    else run[nrun++] = r;
   }
   free(st);
   for (int e = 0; e < nev; e++) {
@@ -43269,7 +43297,16 @@ static void refuse_mixin_after_calls(Compiler *c) {
          runs after both its def and the class's first body, which made the
          class whose object it is called on; one ahead of either may store a
          block that calls it, but a later statement runs that block */
-      if (in_def && !mixin_runs_between(run, nrun, rank > orank ? rank : orank, jrank)) continue;
+      int lo = rank > orank ? rank : orank;
+      if (in_def && !mixin_runs_between(run, nrun, lo, jrank)) {
+        /* a class or module body in between that calls the method by name
+           runs it too (`class R; talk(c); end`); one reaching it through
+           another method is not looked for, as before */
+        int called = 0;
+        for (int i = 0; i < nbody && !called; i++)
+          called = body[2 * i] >= lo && body[2 * i] < jrank && mixin_body_calls(nt, body[2 * i + 1], nt_str(nt, ms->def_node, "name"));
+        if (!called) continue;
+      }
       /* the classes the receiver can be an object of: its type's, or for a
          receiverless call in an instance method, self's */
       TyKind rt = TY_UNKNOWN;
