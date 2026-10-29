@@ -28,7 +28,10 @@ concurrency:
 jobs:
   cross:
     name: x86_64-w64-mingw32 (compile only)
-    runs-on: ubuntu-latest
+    # Not ubuntu-latest: 26.04's mingw-w64 13 builds its libraries (libmingwex,
+    # libwinpthread) against msvcrt, which no longer link beside win32.mk's
+    # -lucrt, and it ships no UCRT-targeting toolchain to use instead.
+    runs-on: ubuntu-24.04
     continue-on-error: true
     timeout-minutes: 20
     steps:
