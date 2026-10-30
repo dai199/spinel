@@ -1,0 +1,41 @@
+name: fork-gate
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch or commit of dai199/spinel to gate
+        required: true
+        default: master
+      rubyspec:
+        description: Run the rubyspec leg (GATE_RUBYSPEC)
+        type: choice
+        options: ['1', '0']
+        default: '1'
+run-name: gate ${{ inputs.ref }}
+permissions:
+  contents: read
+jobs:
+  gate:
+    runs-on: macos-latest
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+      - run: git log --oneline -1
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "4.0"
+      - run: brew install coreutils && echo "/opt/homebrew/opt/coreutils/libexec/gnubin" >> "$GITHUB_PATH"
+      - run: make deps
+      - name: make gate
+        run: |
+          set -o pipefail
+          mkdir -p out
+          make gate GATE_RUBYSPEC=${{ inputs.rubyspec }} 2>&1 | tee out/gate.log
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: gate-log
+          path: out
