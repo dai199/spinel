@@ -11199,6 +11199,8 @@ static void emit_time_sec_whole(Compiler *c, int node, int ts, Buf *b) {
 static void emit_time_civil_zoned(Compiler *c, int *argv, int npos, int zone, int ts, Buf *b) {
   int tz = ++g_tmp, tu = ++g_tmp, tt = ++g_tmp, tl = ++g_tmp, tf = ++g_tmp;
   TyKind zt = comp_ntype(c, zone);
+  /* a nil-able Integer (a missed String#index) reads as a value, so nil can take local time */
+  if (zt == TY_INT && nullable_int_value(c, zone)) zt = TY_UNKNOWN;
   buf_printf(b, "({ int64_t _t%d[6];", tf);
   for (int i = 0; i < 6; i++) {
     buf_printf(b, " _t%d[%d] = ", tf, i);
@@ -11273,8 +11275,12 @@ int emit_time_civil_ctor(Compiler *c, int id, int is_utc, int is_new, Buf *b) {
     if (inv >= 0) {
       int tsv = ++g_tmp, tu = ++g_tmp, tl = ++g_tmp, tz = ++g_tmp, tk = ++g_tmp, th = ++g_tmp;
       TyKind zt = comp_ntype(c, inv);
+      /* a nil-able Integer (a missed String#index) reads as a value, so nil can take local time */
+      if (zt == TY_INT && nullable_int_value(c, inv)) zt = TY_UNKNOWN;
       buf_printf(b, "({ const char *_t%d = ", tsv); emit_expr(c, argv[0], b);
-      if (zt == TY_STRING) { buf_printf(b, "; const char *_t%d = ", tk); emit_expr(c, inv, b); }
+      /* rooted: the in: expression below may allocate */
+      buf_printf(b, "; SP_GC_ROOT_STR(_t%d)", tsv);
+      if (zt == TY_STRING) { buf_printf(b, "; const char *_t%d = ", tk); emit_expr(c, inv, b); buf_printf(b, "; SP_GC_ROOT_STR(_t%d)", tk); }
       else if (zt == TY_INT) { buf_printf(b, "; int64_t _t%d = ", tk); emit_int_expr(c, inv, b); }
       else { buf_printf(b, "; sp_RbVal _t%d = ", tk); emit_boxed(c, inv, b); }
       buf_printf(b, "; int _t%d = sp_time_str_has_zone(_t%d); int _t%d = 0, _t%d = 0; int64_t _t%d = 0;",
@@ -11358,7 +11364,7 @@ static int emit_time_civil_fields(Compiler *c, const int *argv, int argc, int is
     if (inv >= 0) {
       int npos = argc - 1;
       /* any zone spelling, resolved at run time (#3697) */
-      if (comp_ntype(c, inv) != TY_INT) {
+      if (comp_ntype(c, inv) != TY_INT || nullable_int_value(c, inv)) {
         emit_time_civil_zoned(c, (int *)argv, npos, inv, ts, b);
         return 1;
       }
@@ -11382,7 +11388,7 @@ static int emit_time_civil_fields(Compiler *c, const int *argv, int argc, int is
     }
   }
   /* the 7th positional is the zone: any spelling, resolved at run time (#3697) */
-  if (argc == 7 && is_new && comp_ntype(c, argv[6]) != TY_INT) {
+  if (argc == 7 && is_new && (comp_ntype(c, argv[6]) != TY_INT || nullable_int_value(c, argv[6]))) {
     emit_time_civil_zoned(c, (int *)argv, 6, argv[6], ts, b);
     return 1;
   }
