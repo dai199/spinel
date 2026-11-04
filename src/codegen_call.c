@@ -11215,7 +11215,12 @@ static void emit_time_civil_zoned(Compiler *c, int *argv, int npos, int zone, in
     buf_puts(b, ";");
   }
   buf_printf(b, " int _t%d = 0, _t%d = 0; int64_t _t%d = ", tu, tl, tz);
-  if (zt == TY_STRING) { buf_printf(b, "sp_time_zone_arg_off("); emit_expr(c, zone, b); buf_printf(b, ", &_t%d)", tu); }
+  if (zt == TY_STRING) {
+    /* a String-typed zone may be nil when it runs, which reads local time */
+    int tzs = ++g_tmp;
+    buf_printf(b, "({ const char *_t%d = ", tzs); emit_expr(c, zone, b);
+    buf_printf(b, "; _t%d ? sp_time_zone_arg_off(_t%d, &_t%d) : (_t%d = 1, (int64_t)0); })", tzs, tzs, tu, tl);
+  }
   else if (zt == TY_INT) emit_int_expr(c, zone, b);
   else {
     int tb2 = ++g_tmp;
@@ -11275,7 +11280,7 @@ int emit_time_civil_ctor(Compiler *c, int id, int is_utc, int is_new, Buf *b) {
       buf_printf(b, "; int _t%d = sp_time_str_has_zone(_t%d); int _t%d = 0, _t%d = 0; int64_t _t%d = 0;",
                  th, tsv, tu, tl, tz);
       buf_printf(b, " if (!_t%d) ", th);
-      if (zt == TY_STRING) buf_printf(b, "_t%d = sp_time_zone_arg_off(_t%d, &_t%d);", tz, tk, tu);
+      if (zt == TY_STRING) buf_printf(b, "{ if (_t%d) _t%d = sp_time_zone_arg_off(_t%d, &_t%d); else _t%d = 1; }", tk, tz, tk, tu, tl);
       else if (zt == TY_INT) buf_printf(b, "_t%d = _t%d;", tz, tk);
       else buf_printf(b, "{ if (_t%d.tag == SP_TAG_NIL) _t%d = 1; else _t%d = sp_time_zone_val_off(_t%d, &_t%d); }",
                       tk, tl, tz, tk, tu);

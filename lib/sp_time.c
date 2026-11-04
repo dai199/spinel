@@ -301,6 +301,8 @@ sp_Time sp_timev_in_zone_i(sp_Time t, int64_t off) {
   return t;
 }
 sp_Time sp_timev_in_zone_s(sp_Time t, const char *z) {
+  /* a String-typed zone that is nil when it runs: local time, as CRuby reads nil */
+  if (!z) return sp_timev_localtime(t);
   int isu = 0;
   int64_t off = sp_time_zone_arg_off(z, &isu);
   if (isu) { t.is_utc = 1; t.utc_off = 0; }
