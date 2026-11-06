@@ -6,13 +6,16 @@
 # builds the Range.
 m = 1 << 64
 m = "a" if ARGV.size > 5
+# (kept as objects: a literal asked about one value compares in place instead)
 begin
-  p((128...m) === 252)
+  r = (128...m)
+  p(r === 252)
 rescue NotImplementedError => e
   p e.message
 end
 begin
-  p((m..) === 252)
+  r = (m..)
+  p(r === 252)
 rescue NotImplementedError => e
   p e.message
 end
