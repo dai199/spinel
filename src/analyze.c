@@ -52668,10 +52668,11 @@ static void warm_save(Compiler *c, const char *path) {
   free(ck); free(sk); warm_reset();
 }
 static int g_warm_seeded, g_warm_missed;
+static int warm_take(int t) { static int mode = -1; if (mode < 0) { const char *m = getenv("SP_WARM_MODE"); mode = m && sp_streq(m, "concrete"); } return t != TY_UNKNOWN && !(mode && ty_degraded((TyKind)t)); }
 static void warm_seed_lv(Compiler *c, LocalVar *lv, const char *v) {
   int t, pr;
   int a = warm_ty_get(c, &v, &t), b = warm_ty_get(c, &v, &pr);
-  if (a == 1 && lv->type == TY_UNKNOWN && t != TY_UNKNOWN) { lv_set_type(lv, (TyKind)t); g_warm_seeded++; }
+  if (a == 1 && lv->type == TY_UNKNOWN && warm_take(t)) { lv_set_type(lv, (TyKind)t); g_warm_seeded++; }
   if (b == 1 && lv->proc_ret == TY_UNKNOWN && pr != TY_UNKNOWN) lv_set_proc_ret(lv, pr);
 }
 static void warm_load(Compiler *c, const char *path) {
@@ -52699,10 +52700,10 @@ static void warm_load(Compiler *c, const char *path) {
     const char *v = e->v; int t[4], ok = 1;
     for (int i = 0; i < 4; i++) if (warm_ty_get(c, &v, &t[i]) != 1) ok = 0;
     if (ok) {
-      if (sc->ret == TY_UNKNOWN && t[0] != TY_UNKNOWN) { scope_set_ret(sc, (TyKind)t[0]); g_warm_seeded++; }
-      if (sc->ret_noblock == TY_UNKNOWN && t[1] != TY_UNKNOWN) scope_set_ret_noblock(sc, (TyKind)t[1]);
-      if (sc->blk_ret == TY_UNKNOWN && t[2] != TY_UNKNOWN) { *(int *)&sc->blk_ret = t[2]; comp_touch_scope(sc->idx); }
-      if (sc->ret_proc_ret == TY_UNKNOWN && t[3] != TY_UNKNOWN) { *(int *)&sc->ret_proc_ret = t[3]; comp_touch_scope(sc->idx); }
+      if (sc->ret == TY_UNKNOWN && warm_take(t[0])) { scope_set_ret(sc, (TyKind)t[0]); g_warm_seeded++; }
+      if (sc->ret_noblock == TY_UNKNOWN && warm_take(t[1])) scope_set_ret_noblock(sc, (TyKind)t[1]);
+      if (sc->blk_ret == TY_UNKNOWN && warm_take(t[2])) { *(int *)&sc->blk_ret = t[2]; comp_touch_scope(sc->idx); }
+      if (sc->ret_proc_ret == TY_UNKNOWN && warm_take(t[3])) { *(int *)&sc->ret_proc_ret = t[3]; comp_touch_scope(sc->idx); }
     }
     for (int i = 0; i < sc->nlocals; i++) {
       LocalVar *lv = &sc->locals[i];
@@ -52717,12 +52718,12 @@ static void warm_load(Compiler *c, const char *path) {
     for (int i = 0; i < ci->nivars; i++) {
       snprintf(key, sizeof key, "I|%s|%s", ck[k], ci->ivars[i]);
       WarmEnt *e = warm_slot(key, 0); int t; const char *v = e && e->v ? e->v : "";
-      if (warm_ty_get(c, &v, &t) == 1 && ci->ivar_types[i] == TY_UNKNOWN && t != TY_UNKNOWN) { ivar_set_type(ci, i, (TyKind)t); g_warm_seeded++; }
+      if (warm_ty_get(c, &v, &t) == 1 && ci->ivar_types[i] == TY_UNKNOWN && warm_take(t)) { ivar_set_type(ci, i, (TyKind)t); g_warm_seeded++; }
     }
     for (int i = 0; i < ci->ncvars; i++) {
       snprintf(key, sizeof key, "V|%s|%s", ck[k], ci->cvars[i]);
       WarmEnt *e = warm_slot(key, 0); int t; const char *v = e && e->v ? e->v : "";
-      if (warm_ty_get(c, &v, &t) == 1 && ci->cvar_types[i] == TY_UNKNOWN && t != TY_UNKNOWN) { cvar_set_type(ci, i, (TyKind)t); g_warm_seeded++; }
+      if (warm_ty_get(c, &v, &t) == 1 && ci->cvar_types[i] == TY_UNKNOWN && warm_take(t)) { cvar_set_type(ci, i, (TyKind)t); g_warm_seeded++; }
     }
   }
   for (int i = 0; i < c->ngvars; i++) {
