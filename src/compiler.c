@@ -88,6 +88,7 @@ unsigned long *comp_scope_ver, *comp_class_ver, comp_global_ver;
 int *comp_touch_count, *comp_lv_touch_count;
 int comp_scope_ver_cap, comp_class_ver_cap;
 int *comp_touch_log;
+unsigned long g_touch_why[32];
 int comp_ref_owner(Compiler *c, TyRef r) {
   uintptr_t p = (uintptr_t)r;
   for (int k = 0; k < c->nclasses; k++) {
@@ -1639,7 +1640,7 @@ static int *tm_next = NULL, *tm_head = NULL;
    which is only stable while scope shape is fixed (e.g. hash_new_default_arg's
    per-node memo) can stamp their cache and discard it when the epoch changes. */
 static unsigned sm_gen = 0;
-void comp_scope_index_set_frozen(int f) { if (sm_frozen != f) { sm_gen++; comp_touch_global(); } sm_frozen = f; sm_nscopes = -1; }
+void comp_scope_index_set_frozen(int f) { if (sm_frozen != f) { sm_gen++; comp_touch_global_r(21); } sm_frozen = f; sm_nscopes = -1; }
 int comp_scope_index_is_frozen(void) { return sm_frozen; }
 unsigned comp_scope_index_gen(void) { return sm_gen; }
 /* Scopes from `from` on into the chains, ascending so the highest scope
@@ -1747,7 +1748,7 @@ int comp_cmethod_in_class(Compiler *c, int class_id, const char *name) {
    dropped when the index's epoch, the scope or class count, or the class
    shape (comp_class_shape_changed) moves. */
 static unsigned cmc_shape = 0;
-void comp_class_shape_changed(void) { cmc_shape++; comp_touch_global(); }   /* (a parent link or an alias: every answer may read a chain) */
+void comp_class_shape_changed(void) { cmc_shape++; comp_touch_global_r(22); }   /* (a parent link or an alias: every answer may read a chain) */
 unsigned comp_class_shape_gen(void) { return cmc_shape; }
 static char **cmc_name; static unsigned char *cmc_cm; static int **cmc_ans;
 static int **cmc_resp; static int *cmc_nresp;   /* per slot: the responders (comp_name_responders), -1 unbuilt */

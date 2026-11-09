@@ -860,7 +860,7 @@ static ShareFacts *sh_memo_build(Compiler *c) {
 void share_facts_build(Compiler *c) {
   share_facts_free(c);
   c->share = sh_memo_build(c);
-  comp_touch_global();   /* the facts inference reads under --share-strings are new */
+  comp_touch_global_r(20);   /* the facts inference reads under --share-strings are new */
 }
 
 void share_facts_free(Compiler *c) {

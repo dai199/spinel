@@ -73,15 +73,16 @@ extern int *comp_touch_count, *comp_lv_touch_count;
 #define COMP_TOUCH_LOG_CAP (1 << 22)
 extern int *comp_touch_log;
 static inline void comp_touch_note(int key) { if (comp_touch_log) comp_touch_log[comp_ty_edits & (COMP_TOUCH_LOG_CAP - 1)] = key; }
-static inline void comp_touch_global_r(int why) { (void)why; comp_global_ver = ++comp_ty_edits; comp_touch_note(-1); }
+extern unsigned long g_touch_why[32];   /* (experiment) the program-wide moves, by cause */
+static inline void comp_touch_global_r(int why) { g_touch_why[why & 31]++; comp_global_ver = ++comp_ty_edits; comp_touch_note(-1); }
 static inline void comp_touch_global(void) { comp_touch_global_r(0); }
 static inline void comp_touch_scope(int idx) {
   if (idx >= 0 && idx < comp_scope_ver_cap) { comp_scope_ver[idx] = ++comp_ty_edits; comp_touch_note(idx); if (comp_touch_count) comp_touch_count[idx]++; }
-  else comp_touch_global();
+  else comp_touch_global_r(6);
 }
 static inline void comp_touch_class(int idx) {
   if (idx >= 0 && idx < comp_class_ver_cap) { comp_class_ver[idx] = ++comp_ty_edits; comp_touch_note(-(idx + 2)); }
-  else comp_touch_global();
+  else comp_touch_global_r(7);
 }
 extern int imemo_dep_on;   /* an inference that records what it reads is open */
 void imemo_dep_scope(int idx);

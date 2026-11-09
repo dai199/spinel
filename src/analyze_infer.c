@@ -177,12 +177,13 @@ static unsigned long imemo_owner_ver(int key) {
   return k < comp_class_ver_cap ? comp_class_ver[k] : comp_global_ver;
 }
 /* does node id's kept answer still stand? */
+unsigned long g_imemo_out[8];   /* (experiment) 0 gen hit, 1 kept, 2 no answer, 3 program moved, 4 read the program, 5 an owner moved */
 static int imemo_deps_hold(int id) {
   const ImemoDeps *d = &g_imemo_deps[id];
-  if (d->n < 0) return comp_ty_edits <= d->at;
-  if (comp_global_ver > d->at) return 0;
+  if (d->n < 0) { int h = comp_ty_edits <= d->at; if (!h) g_imemo_out[4]++; return h; }
+  if (comp_global_ver > d->at) { g_imemo_out[3]++; return 0; }
   for (int i = 0; i < d->n; i++)
-    if (imemo_owner_ver(d->dep[i]) > d->at) return 0;
+    if (imemo_owner_ver(d->dep[i]) > d->at) { g_imemo_out[5]++; return 0; }
   return 1;
 }
 /* node id's owners join the inference open now */
@@ -12916,11 +12917,12 @@ TyKind infer_type(Compiler *c, int id) {
   if (memo_ok && id < g_imemo_cap) {
     unsigned st = g_imemo_stamp[id];
     if (st == g_imemo_gen) {
-      imemo_rec_merge(id); return g_imemo_val[id];
+      g_imemo_out[0]++; imemo_rec_merge(id); return g_imemo_val[id];
     }
+    if (!st) g_imemo_out[2]++;
     /* an answer of an earlier tree, kept while the owners it read stand */
     if (st && g_imemo_mode != IMEMO_TREE && imemo_deps_hold(id)) {
-      if (g_imemo_mode == IMEMO_ROUND) { imemo_rec_merge(id); return g_imemo_val[id]; }
+      if (g_imemo_mode == IMEMO_ROUND) { g_imemo_out[1]++; imemo_rec_merge(id); return g_imemo_val[id]; }
       kept = 1; kept_t = g_imemo_val[id]; kept_d = g_imemo_deps[id];
     }
   }

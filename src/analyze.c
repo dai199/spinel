@@ -1972,7 +1972,7 @@ void compute_instantiated(Compiler *c, int early) {
   for (int k = 0; k < c->nclasses; k++) { c->classes[k].ctor_reachable = c->classes[k].instantiated; comp_touch_class(c->classes[k].idx); }
   if (early) { for (int k = 0; k < c->nclasses; k++) c->classes[k].instantiated = keep[k]; free(keep); }
   comp_instantiated_gen++;
-  comp_touch_global();   /* instantiated and ctor_reachable moved: inference reads them (respond_to? on a box, the plans) */
+  comp_touch_global_r(23);   /* instantiated and ctor_reachable moved: inference reads them (respond_to? on a box, the plans) */
 }
 
 /* ---- proc capture detection (closures) ----
@@ -51097,9 +51097,9 @@ static void an_phase_class_structure(Compiler *c) {
   comp_scope_index_set_frozen(1);
   AN_STEP_V("mark_mixed_key_hash_locals", mark_mixed_key_hash_locals(c));
   AN_STEP_V("mark_empty_hash_cmp_peers", mark_empty_hash_cmp_peers(c));
-  g_eh_pre_infer = 1; comp_touch_global();   /* (a mode inference reads) */
+  g_eh_pre_infer = 1; comp_touch_global_r(24);   /* (a mode inference reads) */
   (void)mark_empty_hash_key_ctx(c);
-  g_eh_pre_infer = 0; comp_touch_global();   /* (a mode inference reads) */
+  g_eh_pre_infer = 0; comp_touch_global_r(25);   /* (a mode inference reads) */
   AN_STEP_V("mark_empty_hash_const_writes", mark_empty_hash_const_writes(c));
   comp_scope_index_set_frozen(0);
 }
@@ -52750,7 +52750,7 @@ static void an_phase_infer_fixpoint(Compiler *c) {
      a no-op when nothing was cloned. (#3399) */
   for (int pf_round = 0; pf_round < 2; pf_round++) {
   if (pf_round == 1 && !AN_STEP("make_yield_proc_forms", make_yield_proc_forms(c))) break;
-  g_infer_optimistic = 1; comp_touch_global();   /* (a mode inference reads) */
+  g_infer_optimistic = 1; comp_touch_global_r(26);   /* (a mode inference reads) */
   { static int loaded; if (pf_round == 0 && !loaded++ && getenv("SP_WARM_LOAD")) warm_load(c, getenv("SP_WARM_LOAD")); }
   g_infer_getter_write_pending = 0;
   AnRoundCap rc = { 128, 0, 0, NULL, 0 };
@@ -52760,7 +52760,11 @@ static void an_phase_infer_fixpoint(Compiler *c) {
         int ds = 0, dk = 0;
         for (int s = 0; s < c->nscopes && s < comp_scope_ver_cap; s++) ds += comp_scope_ver[s] > e0;
         for (int k = 0; k < c->nclasses && k < comp_class_ver_cap; k++) dk += comp_class_ver[k] > e0;
-        fprintf(stderr, "spinel-timing: round=%d.%d ms=%.1f moved_scopes=%d/%d moved_classes=%d/%d global=%d\n", pf_round, iter, now - rt0, ds, c->nscopes, dk, c->nclasses, comp_global_ver > e0);
+        fprintf(stderr, "spinel-timing: round=%d.%d ms=%.1f moved_scopes=%d/%d moved_classes=%d/%d global=%d", pf_round, iter, now - rt0, ds, c->nscopes, dk, c->nclasses, comp_global_ver > e0);
+        { extern unsigned long g_imemo_out[8];
+          fprintf(stderr, " memo gen=%lu kept=%lu none=%lu prog_moved=%lu read_prog=%lu owner=%lu why", g_imemo_out[0], g_imemo_out[1], g_imemo_out[2], g_imemo_out[3], g_imemo_out[4], g_imemo_out[5]);
+          for (int w = 0; w < 32; w++) if (g_touch_why[w]) fprintf(stderr, " %d:%lu", w, g_touch_why[w]);
+          fputc('\n', stderr); memset(g_imemo_out, 0, sizeof g_imemo_out); memset(g_touch_why, 0, sizeof g_touch_why); }
       }
       rt0 = now; e0 = comp_ty_edits; }
     if (iter + 1 > g_fixpoint_rounds) g_fixpoint_rounds = iter + 1;
@@ -52964,7 +52968,7 @@ static void an_phase_infer_fixpoint(Compiler *c) {
          feeds settle on that. Everything resolvable has already settled
          concretely, so this second stage widens only what really is open. */
       if (g_infer_optimistic) {
-        g_infer_optimistic = 0; comp_touch_global();   /* (a mode inference reads) */
+        g_infer_optimistic = 0; comp_touch_global_r(27);   /* (a mode inference reads) */
         /* settled, and on the last round the cap allows: the second stage
            still has its round to run */
         if (iter + 1 == rc.cap) rc.cap++;
@@ -52994,7 +52998,7 @@ static void an_phase_infer_fixpoint(Compiler *c) {
     if (iter + 1 == rc.cap) g_fixpoint_capped = 1;
   }
   free(rc.seen);
-  g_infer_optimistic = 0; comp_touch_global();   /* (a mode inference reads) */
+  g_infer_optimistic = 0; comp_touch_global_r(27);   /* (a mode inference reads) */
   }
 
   /* Optimistic re-narrow: the monotonic fixpoint locks a slot to poly the
