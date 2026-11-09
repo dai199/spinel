@@ -152,7 +152,7 @@ static int g_imemo_cap = 0;
    noted by the lookups that reach a slot (imemo_dep_*), into the record of
    the inference open now (a stack by depth); a nested answer's owners join
    its asker's, kept or computed. */
-#define IMEMO_DEPS 8
+#define IMEMO_DEPS 16
 #define IMEMO_REC_MAX 4096   /* (an inference this deep is a chain of that many links) */
 typedef struct { unsigned long at; int n; int dep[IMEMO_DEPS]; } ImemoDeps;
 static ImemoDeps *g_imemo_deps = NULL;
