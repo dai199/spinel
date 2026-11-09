@@ -52572,6 +52572,173 @@ static void an_pass_report(void) {
             g_an_pass[i].name, g_an_pass[i].ms, g_an_pass[i].calls, g_an_pass[i].changed);
 }
 
+/* (experiment) A warm start of the fixpoint: SP_WARM_SAVE=path writes the
+   slots' types as the fixpoint settled them, SP_WARM_LOAD=path seeds the
+   slots still untyped from such a file before the first round. A class is
+   written by name, a scope by its owner, name and occurrence, so a file
+   from an edited program still finds the slots it shares. */
+typedef struct { char *k; char *v; int n; } WarmEnt;
+static struct { WarmEnt *e; int cap, n; } g_warm;
+static WarmEnt *warm_slot(const char *k, int add) {
+  if (!g_warm.cap) { if (!add) return NULL; g_warm.cap = 1 << 16; g_warm.e = calloc((size_t)g_warm.cap, sizeof *g_warm.e); }
+  if (add && g_warm.n * 2 >= g_warm.cap) {
+    WarmEnt *old = g_warm.e; int oc = g_warm.cap;
+    g_warm.cap *= 2; g_warm.e = calloc((size_t)g_warm.cap, sizeof *g_warm.e); g_warm.n = 0;
+    for (int i = 0; i < oc; i++) if (old[i].k) { WarmEnt *d = warm_slot(old[i].k, 1); *d = old[i]; }
+    free(old);
+  }
+  unsigned h = sp_strhash(k) & (unsigned)(g_warm.cap - 1);
+  while (g_warm.e[h].k) {
+    if (sp_streq(g_warm.e[h].k, k)) return &g_warm.e[h];
+    h = (h + 1) & (unsigned)(g_warm.cap - 1);
+  }
+  if (!add) return NULL;
+  g_warm.e[h].k = strdup(k); g_warm.n++;
+  return &g_warm.e[h];
+}
+static void warm_reset(void) {
+  for (int i = 0; i < g_warm.cap; i++) { free(g_warm.e[i].k); free(g_warm.e[i].v); }
+  free(g_warm.e); memset(&g_warm, 0, sizeof g_warm);
+}
+static void warm_class_keys(Compiler *c, char **ck) {
+  for (int k = 0; k < c->nclasses; k++) {
+    char b[600]; snprintf(b, sizeof b, "c|%s", c->classes[k].name ? c->classes[k].name : "?");
+    WarmEnt *e = warm_slot(b, 1);
+    snprintf(b, sizeof b, "%s/%d", c->classes[k].name ? c->classes[k].name : "?", e->n++);
+    ck[k] = strdup(b);
+  }
+}
+static void warm_scope_keys(Compiler *c, char **ck, char **sk) {
+  for (int s = 0; s < c->nscopes; s++) {
+    Scope *sc = &c->scopes[s];
+    int k = sc->class_id;
+    char b[1400];
+    snprintf(b, sizeof b, "s|%s%c%s", k >= 0 && k < c->nclasses ? ck[k] : "-", sc->is_cmethod ? '.' : '#',
+             sc->name ? sc->name : "(top)");
+    WarmEnt *e = warm_slot(b, 1);
+    snprintf(b + strlen(b), sizeof b - strlen(b), "/%d", e->n++);
+    sk[s] = strdup(b + 2);
+  }
+}
+static void warm_ty_put(FILE *f, Compiler *c, int t) {
+  if (ty_is_obj_array((TyKind)t)) { int k = ty_obj_array_class((TyKind)t); fprintf(f, " a:%s", k >= 0 && k < c->nclasses ? c->classes[k].name : "?"); }
+  else if (ty_is_object((TyKind)t)) { int k = ty_object_class((TyKind)t); fprintf(f, " o:%s", k >= 0 && k < c->nclasses ? c->classes[k].name : "?"); }
+  else fprintf(f, " %d", t);
+}
+static int warm_ty_get(Compiler *c, const char **p, int *out) {
+  while (**p == ' ') (*p)++;
+  if (!**p) return 0;
+  if (((*p)[0] == 'a' || (*p)[0] == 'o') && (*p)[1] == ':') {
+    char nm[512]; int i = 0; char kind = (*p)[0]; *p += 2;
+    while (**p && **p != ' ' && i < 511) nm[i++] = *(*p)++;
+    nm[i] = 0;
+    for (int k = 0; k < c->nclasses; k++)
+      if (c->classes[k].name && sp_streq(c->classes[k].name, nm)) { *out = kind == 'a' ? (int)ty_obj_array(k) : (int)ty_object(k); return 1; }
+    return -1;
+  }
+  *out = (int)strtol(*p, (char **)p, 10);
+  return 1;
+}
+static void warm_save(Compiler *c, const char *path) {
+  FILE *f = fopen(path, "w");
+  if (!f) return;
+  warm_reset();
+  char **ck = calloc((size_t)c->nclasses + 1, sizeof *ck), **sk = calloc((size_t)c->nscopes + 1, sizeof *sk);
+  warm_class_keys(c, ck); warm_scope_keys(c, ck, sk);
+  for (int s = 0; s < c->nscopes; s++) {
+    Scope *sc = &c->scopes[s];
+    fprintf(f, "R %s", sk[s]); warm_ty_put(f, c, sc->ret); warm_ty_put(f, c, sc->ret_noblock);
+    warm_ty_put(f, c, sc->blk_ret); warm_ty_put(f, c, sc->ret_proc_ret); fputc('\n', f);
+    for (int i = 0; i < sc->nlocals; i++) {
+      LocalVar *lv = &sc->locals[i];
+      if (!lv->is_param && !lv->is_block_param) continue;
+      fprintf(f, "P %s|%s", sk[s], lv->name); warm_ty_put(f, c, lv->type); warm_ty_put(f, c, lv->proc_ret); fputc('\n', f);
+    }
+  }
+  for (int k = 0; k < c->nclasses; k++) {
+    ClassInfo *ci = &c->classes[k];
+    for (int i = 0; i < ci->nivars; i++) { fprintf(f, "I %s|%s", ck[k], ci->ivars[i]); warm_ty_put(f, c, ci->ivar_types[i]); fputc('\n', f); }
+    for (int i = 0; i < ci->ncvars; i++) { fprintf(f, "V %s|%s", ck[k], ci->cvars[i]); warm_ty_put(f, c, ci->cvar_types[i]); fputc('\n', f); }
+  }
+  for (int i = 0; i < c->ngvars; i++) { fprintf(f, "G %s", c->gvars[i].name); warm_ty_put(f, c, c->gvars[i].type); warm_ty_put(f, c, c->gvars[i].proc_ret); fputc('\n', f); }
+  for (int i = 0; i < c->nconsts; i++) { fprintf(f, "K %s", c->consts[i].name); warm_ty_put(f, c, c->consts[i].type); warm_ty_put(f, c, c->consts[i].proc_ret); fputc('\n', f); }
+  fclose(f);
+  for (int k = 0; k < c->nclasses; k++) free(ck[k]);
+  for (int s = 0; s < c->nscopes; s++) free(sk[s]);
+  free(ck); free(sk); warm_reset();
+}
+static int g_warm_seeded, g_warm_missed;
+static void warm_seed_lv(Compiler *c, LocalVar *lv, const char *v) {
+  int t, pr;
+  int a = warm_ty_get(c, &v, &t), b = warm_ty_get(c, &v, &pr);
+  if (a == 1 && lv->type == TY_UNKNOWN && t != TY_UNKNOWN) { lv_set_type(lv, (TyKind)t); g_warm_seeded++; }
+  if (b == 1 && lv->proc_ret == TY_UNKNOWN && pr != TY_UNKNOWN) lv_set_proc_ret(lv, pr);
+}
+static void warm_load(Compiler *c, const char *path) {
+  FILE *f = fopen(path, "r");
+  if (!f) return;
+  warm_reset();
+  char line[4096];
+  while (fgets(line, sizeof line, f)) {
+    line[strcspn(line, "\n")] = 0;
+    char *sp = strchr(line + 2, ' ');
+    if (!sp || line[1] != ' ') continue;
+    *sp = 0;
+    char key[2200]; snprintf(key, sizeof key, "%c|%s", line[0], line + 2);
+    WarmEnt *e = warm_slot(key, 1); free(e->v); e->v = strdup(sp + 1);
+  }
+  fclose(f);
+  char **ck = calloc((size_t)c->nclasses + 1, sizeof *ck), **sk = calloc((size_t)c->nscopes + 1, sizeof *sk);
+  warm_class_keys(c, ck); warm_scope_keys(c, ck, sk);
+  char key[2400];
+  for (int s = 0; s < c->nscopes; s++) {
+    Scope *sc = &c->scopes[s];
+    snprintf(key, sizeof key, "R|%s", sk[s]);
+    WarmEnt *e = warm_slot(key, 0);
+    if (!e || !e->v) { g_warm_missed++; continue; }
+    const char *v = e->v; int t[4], ok = 1;
+    for (int i = 0; i < 4; i++) if (warm_ty_get(c, &v, &t[i]) != 1) ok = 0;
+    if (ok) {
+      if (sc->ret == TY_UNKNOWN && t[0] != TY_UNKNOWN) { scope_set_ret(sc, (TyKind)t[0]); g_warm_seeded++; }
+      if (sc->ret_noblock == TY_UNKNOWN && t[1] != TY_UNKNOWN) scope_set_ret_noblock(sc, (TyKind)t[1]);
+      if (sc->blk_ret == TY_UNKNOWN && t[2] != TY_UNKNOWN) { *(int *)&sc->blk_ret = t[2]; comp_touch_scope(sc->idx); }
+      if (sc->ret_proc_ret == TY_UNKNOWN && t[3] != TY_UNKNOWN) { *(int *)&sc->ret_proc_ret = t[3]; comp_touch_scope(sc->idx); }
+    }
+    for (int i = 0; i < sc->nlocals; i++) {
+      LocalVar *lv = &sc->locals[i];
+      if (!lv->is_param && !lv->is_block_param) continue;
+      snprintf(key, sizeof key, "P|%s|%s", sk[s], lv->name);
+      WarmEnt *p = warm_slot(key, 0);
+      if (p && p->v) warm_seed_lv(c, lv, p->v);
+    }
+  }
+  for (int k = 0; k < c->nclasses; k++) {
+    ClassInfo *ci = &c->classes[k];
+    for (int i = 0; i < ci->nivars; i++) {
+      snprintf(key, sizeof key, "I|%s|%s", ck[k], ci->ivars[i]);
+      WarmEnt *e = warm_slot(key, 0); int t; const char *v = e && e->v ? e->v : "";
+      if (warm_ty_get(c, &v, &t) == 1 && ci->ivar_types[i] == TY_UNKNOWN && t != TY_UNKNOWN) { ivar_set_type(ci, i, (TyKind)t); g_warm_seeded++; }
+    }
+    for (int i = 0; i < ci->ncvars; i++) {
+      snprintf(key, sizeof key, "V|%s|%s", ck[k], ci->cvars[i]);
+      WarmEnt *e = warm_slot(key, 0); int t; const char *v = e && e->v ? e->v : "";
+      if (warm_ty_get(c, &v, &t) == 1 && ci->cvar_types[i] == TY_UNKNOWN && t != TY_UNKNOWN) { cvar_set_type(ci, i, (TyKind)t); g_warm_seeded++; }
+    }
+  }
+  for (int i = 0; i < c->ngvars; i++) {
+    snprintf(key, sizeof key, "G|%s", c->gvars[i].name);
+    WarmEnt *e = warm_slot(key, 0); if (e && e->v) warm_seed_lv(c, &c->gvars[i], e->v);
+  }
+  for (int i = 0; i < c->nconsts; i++) {
+    snprintf(key, sizeof key, "K|%s", c->consts[i].name);
+    WarmEnt *e = warm_slot(key, 0); if (e && e->v) warm_seed_lv(c, &c->consts[i], e->v);
+  }
+  for (int k = 0; k < c->nclasses; k++) free(ck[k]);
+  for (int s = 0; s < c->nscopes; s++) free(sk[s]);
+  free(ck); free(sk); warm_reset();
+  if (sp_timing_on()) fprintf(stderr, "spinel-timing: warm_seed seeded=%d scopes_missed=%d\n", g_warm_seeded, g_warm_missed);
+}
+
 static void an_phase_infer_fixpoint(Compiler *c) {
   g_fixpoint_rounds = 0;
   g_fixpoint_capped = 0;
@@ -52583,9 +52750,11 @@ static void an_phase_infer_fixpoint(Compiler *c) {
   for (int pf_round = 0; pf_round < 2; pf_round++) {
   if (pf_round == 1 && !AN_STEP("make_yield_proc_forms", make_yield_proc_forms(c))) break;
   g_infer_optimistic = 1; comp_touch_global();   /* (a mode inference reads) */
+  { static int loaded; if (pf_round == 0 && !loaded++ && getenv("SP_WARM_LOAD")) warm_load(c, getenv("SP_WARM_LOAD")); }
   g_infer_getter_write_pending = 0;
   AnRoundCap rc = { 128, 0, 0, NULL, 0 };
   for (int iter = 0; iter < rc.cap; iter++) {
+    { static double rt0; double now = sp_timing_now(); if (sp_timing_on() && iter > 0) fprintf(stderr, "spinel-timing: round=%d.%d ms=%.1f\n", pf_round, iter, now - rt0); rt0 = now; }
     if (iter + 1 > g_fixpoint_rounds) g_fixpoint_rounds = iter + 1;
     g_infer_round = iter + 1;
     int ch = 0;
@@ -56989,6 +57158,7 @@ void analyze_program(Compiler *c) {
   AN_PHASE("cls_facts", an_cls_facts(c));
   double tm_fp = sp_timing_now();
   AN_STEP_V("an_phase_infer_fixpoint", an_phase_infer_fixpoint(c));
+  if (getenv("SP_WARM_SAVE")) warm_save(c, getenv("SP_WARM_SAVE"));
   refuse_self_singleton_calls(c);   /* (on the settled receiver types, #11157) */
   { char ex[64]; snprintf(ex, sizeof ex, " rounds=%d%s", g_fixpoint_rounds, g_fixpoint_capped ? " capped=1" : ""); sp_timing_end(tm_fp, "analysis_fixpoint", ex); }
   an_pass_report();
