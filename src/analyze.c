@@ -52755,7 +52755,14 @@ static void an_phase_infer_fixpoint(Compiler *c) {
   g_infer_getter_write_pending = 0;
   AnRoundCap rc = { 128, 0, 0, NULL, 0 };
   for (int iter = 0; iter < rc.cap; iter++) {
-    { static double rt0; double now = sp_timing_now(); if (sp_timing_on() && iter > 0) fprintf(stderr, "spinel-timing: round=%d.%d ms=%.1f\n", pf_round, iter, now - rt0); rt0 = now; }
+    { static double rt0; static unsigned long e0; double now = sp_timing_now();
+      if (sp_timing_on() && iter > 0) {
+        int ds = 0, dk = 0;
+        for (int s = 0; s < c->nscopes && s < comp_scope_ver_cap; s++) ds += comp_scope_ver[s] > e0;
+        for (int k = 0; k < c->nclasses && k < comp_class_ver_cap; k++) dk += comp_class_ver[k] > e0;
+        fprintf(stderr, "spinel-timing: round=%d.%d ms=%.1f moved_scopes=%d/%d moved_classes=%d/%d global=%d\n", pf_round, iter, now - rt0, ds, c->nscopes, dk, c->nclasses, comp_global_ver > e0);
+      }
+      rt0 = now; e0 = comp_ty_edits; }
     if (iter + 1 > g_fixpoint_rounds) g_fixpoint_rounds = iter + 1;
     g_infer_round = iter + 1;
     int ch = 0;
