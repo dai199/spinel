@@ -78,7 +78,7 @@ static inline void comp_touch_global_r(int why) { g_touch_why[why & 31]++; comp_
 static inline void comp_touch_global(void) { comp_touch_global_r(0); }
 static inline void comp_touch_scope(int idx) {
   if (idx >= 0 && idx < comp_scope_ver_cap) { comp_scope_ver[idx] = ++comp_ty_edits; comp_touch_note(idx); if (comp_touch_count) comp_touch_count[idx]++; }
-  else comp_touch_global_r(6);
+  else { void sp_touch_trace(int idx); sp_touch_trace(idx); comp_touch_global_r(6); }
 }
 static inline void comp_touch_class(int idx) {
   if (idx >= 0 && idx < comp_class_ver_cap) { comp_class_ver[idx] = ++comp_ty_edits; comp_touch_note(-(idx + 2)); }

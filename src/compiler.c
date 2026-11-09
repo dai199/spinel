@@ -89,6 +89,17 @@ int *comp_touch_count, *comp_lv_touch_count;
 int comp_scope_ver_cap, comp_class_ver_cap;
 int *comp_touch_log;
 unsigned long g_touch_why[32];
+#include <execinfo.h>
+/* (experiment) SP_TOUCH_TRACE: where a late round's write moves the program */
+void sp_touch_trace(int idx) {
+  extern int g_infer_round;
+  static int on = -1;
+  if (on < 0) on = getenv("SP_TOUCH_TRACE") != NULL;
+  if (!on || g_infer_round < 12) return;
+  void *bt[12]; int n = backtrace(bt, 12);
+  fprintf(stderr, "touch-trace: round=%d idx=%d\n", g_infer_round, idx);
+  backtrace_symbols_fd(bt, n, 2);
+}
 int comp_ref_owner(Compiler *c, TyRef r) {
   uintptr_t p = (uintptr_t)r;
   for (int k = 0; k < c->nclasses; k++) {
