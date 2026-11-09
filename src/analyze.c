@@ -18127,7 +18127,64 @@ static int oa_empty_rows(Compiler *c, OAS *sl, int r, int cls) {
   return rows;
 }
 
+static int narrow_object_arrays_round(Compiler *c);
+/* The round below puts every slot it narrowed back on the poly array and
+   narrows it again, and most come back to the type they had: their owners'
+   versions would say they changed, a constant's the program's, and every
+   kept answer that read one would be derived again, round after round. As
+   infer_write_types does (#10325), an owner whose only writes were its
+   slots' types, all back where they were, gets its version back. */
 static int narrow_object_arrays(Compiler *c) {
+  if (comp_lv_touch_count) return narrow_object_arrays_round(c);   /* (a caller counting its own) */
+  unsigned long p0 = comp_ty_edits, g0 = comp_global_ver;
+  int ns = c->nscopes, nl = 0, ng = c->nconsts + c->ngvars;
+  for (int s = 0; s < ns; s++) nl += c->scopes[s].nlocals;
+  unsigned long *v0 = malloc(sizeof(unsigned long) * (size_t)(ns + 1));
+  int *tc = calloc((size_t)ns + 1, sizeof(int)), *lc = calloc((size_t)ns + 1, sizeof(int));
+  int *ty = malloc(sizeof(int) * (size_t)(2 * (nl + ng) + 1));
+  if (!v0 || !tc || !lc || !ty) { fprintf(stderr, "spinel: out of memory\n"); exit(1); }
+  int k = 0;
+  for (int s = 0; s < ns; s++) {
+    v0[s] = s < comp_scope_ver_cap ? comp_scope_ver[s] : 0;
+    for (int i = 0; i < c->scopes[s].nlocals; i++, k += 2) {
+      ty[k] = (int)c->scopes[s].locals[i].type; ty[k + 1] = c->scopes[s].locals[i].proc_ret;
+    }
+  }
+  for (int i = 0; i < ng; i++, k += 2) {
+    const LocalVar *g = i < c->nconsts ? &c->consts[i] : &c->gvars[i - c->nconsts];
+    ty[k] = (int)g->type; ty[k + 1] = g->proc_ret;
+  }
+  comp_touch_count = tc; comp_lv_touch_count = lc;
+  comp_global_touches = comp_lv_global_touches = 0;
+  int changed = narrow_object_arrays_round(c);
+  comp_touch_count = comp_lv_touch_count = NULL;
+  int restored = 0;
+  k = 0;
+  for (int s = 0; s < ns; s++) {
+    int n = c->scopes[s].nlocals, same = s < c->nscopes && tc[s] > 0 && tc[s] == lc[s] && s < comp_scope_ver_cap;
+    for (int i = 0; i < n && same; i++)
+      if ((int)c->scopes[s].locals[i].type != ty[k + 2 * i] || c->scopes[s].locals[i].proc_ret != ty[k + 2 * i + 1]) same = 0;
+    if (same) { comp_scope_ver[s] = v0[s]; restored = 1; }
+    k += 2 * n;
+  }
+  /* (the program's: only when its every move was such a slot's, and none of
+     them was added or dropped meanwhile) */
+  if (comp_global_touches > 0 && comp_global_touches == comp_lv_global_touches && ns == c->nscopes &&
+      ng == c->nconsts + c->ngvars) {
+    int same = 1;
+    for (int i = 0; i < ng && same; i++) {
+      const LocalVar *g = i < c->nconsts ? &c->consts[i] : &c->gvars[i - c->nconsts];
+      same = (int)g->type == ty[k + 2 * i] && g->proc_ret == ty[k + 2 * i + 1];
+    }
+    if (same) { comp_global_ver = g0; restored = 1; }
+  }
+  /* (what was derived off the reset state reads as current under the
+     versions put back: it goes) */
+  if (restored) infer_memo_forget_since(p0);
+  free(v0); free(tc); free(lc); free(ty);
+  return changed;
+}
+static int narrow_object_arrays_round(Compiler *c) {
   const NodeTable *nt = c->nt;
   int changed = 0;
   /* Start every round from the same shape. A slot narrowed last round holds
