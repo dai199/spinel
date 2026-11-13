@@ -7181,6 +7181,11 @@ int cplan_nil_scalar_reach(Compiler *c, int id) {
   int core = rt == TY_STRING || rt == TY_STRBUF ? CORE_STRING
            : rt == TY_INT ? CORE_INTEGER : rt == TY_FLOAT ? CORE_FLOAT : -1;
   if (core < 0) return 0;
+  /* (the answer is NilClass's own method: asked of the tables first, with
+     no call bound, as the nil and the plan asks below are a tenth of a
+     large program's analysis for the names NilClass does not define) */
+  int nk = comp_core_class(c, CORE_NILCLASS);
+  if (nk < 0 || call_target(c, -1, nk, name, CT_OWN, NULL) < 0) return 0;
   if (core == CORE_STRING ? !repr_of(c, recv).may_nil : !nullable_int_value(c, recv)) return 0;
   int nilcls = 0, nmi = cplan_nil_program_method(c, id, name, &nilcls);
   if (nmi < 0 || !nilcls) return 0;
@@ -7201,7 +7206,6 @@ int cplan_nil_scalar_reach(Compiler *c, int id) {
   }
   /* (a private or protected one keeps the old path: the boxed dispatch
      does not check visibility) */
-  int nk = comp_core_class(c, CORE_NILCLASS);
   if (comp_method_vis_declared(c, nk, name, NULL) != SP_VIS_PUBLIC) return 0;
   int k = comp_core_class(c, core);
   return k < 0 || call_target(c, id, k, name, 0, NULL) < 0;
