@@ -28723,11 +28723,14 @@ int desugar_missing_method_calls(Compiler *c) {
     else {
       NodeKind rk = nt_kind(nt, r);
       reread = rk == NK_SelfNode || rk == NK_LocalVariableReadNode || rk == NK_InstanceVariableReadNode;
+      const ClsSet *set = cls_fact_node(c, r);
+      if (!set || set->all) continue;
+      /* (no class of the program's in the set, no miss: the receiver's type is asked only of a set that holds one) */
+      int first = cls_set_next(set, -1);
+      if (first < 0 || first >= c->nclasses) continue;
       /* (an object of the program's, or a box that may hold one) */
       TyKind rt = infer_type(c, r);
       if (!ty_is_object(rt) && rt != TY_POLY) continue;
-      const ClsSet *set = cls_fact_node(c, r);
-      if (!set || set->all) continue;
       for (int k = cls_set_next(set, -1); k >= 0; k = cls_set_next(set, k)) {
         if (k >= c->nclasses) { others = 1; continue; }
         if (mm_answers(c, id, k, nm)) { others = 1; continue; }
