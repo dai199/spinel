@@ -28587,13 +28587,16 @@ int object_instance_method_name(const char *n);
 int builtin_object_method_known(const char *m);
 /* Does class k answer nm without method_missing: a method or an accessor of
    its chain, or a method every object has? */
-static int mm_answers(Compiler *c, int id, int k, const char *nm) {
-  MethodLookup ml = { .def_class = -1 };
-  if (call_target(c, id, k, nm, 0, &ml) >= 0 || ml.kind == ML_ATTR) return 1;
+/* Does every object answer nm at call id, whatever its class: a top-level def or a method every object has? */
+static int mm_every_object_answers(Compiler *c, int id, const char *nm) {
   /* (a top-level def is Object's, which every object answers ahead of method_missing) */
   if (call_target(c, id, -1, nm, CT_TOP, NULL) >= 0) return 1;
   for (int i = 0; object_methods[i]; i++) if (sp_streq(nm, object_methods[i])) return 1;
   return object_instance_method_name(nm) || builtin_object_method_known(nm) || is_kernel_module_function(nm);
+}
+static int mm_answers(Compiler *c, int id, int k, const char *nm) {
+  MethodLookup ml = { .def_class = -1 };
+  return call_target(c, id, k, nm, 0, &ml) >= 0 || ml.kind == ML_ATTR;
 }
 /* `::A::B` for the qualified class name `A::B` */
 static int mm_path_node(NodeTable *nt, int like, const char *qn) {
@@ -28689,6 +28692,8 @@ int desugar_missing_method_calls(Compiler *c) {
     size_t nl = strlen(nm);
     if (nl > 1 && nm[nl - 1] == '=' && !sp_streq(nm, "==") && !sp_streq(nm, "!=") && !sp_streq(nm, "<=") &&
         !sp_streq(nm, ">=") && !sp_streq(nm, "===")) continue;
+    /* (every class answers it: no class misses, asked once rather than for each class) */
+    if (mm_every_object_answers(c, id, nm)) continue;
     /* (a defined? operand is not run: it answers for the name as written) */
     if (!parent) parent = an_parent_map(nt);
     { int d = parent ? parent[id] : -1;
