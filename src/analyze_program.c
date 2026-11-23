@@ -934,6 +934,8 @@ static void prog_site_note(void *ud, int load, int in_place) {
     q->top_file[q->ntop] = t; q->top_load[q->ntop++] = load;
     return;
   }
+  /* (nor a nested `load`, after which a later require still loads nothing it has not run itself) */
+  if (!m || !(sp_streq(m, "require") || sp_streq(m, "require_relative"))) q->spoil[t] = 1;
   q->nnest[t]++; q->nest_site[t] = load; q->nest_at[t] = q->stmt;
   q->nest_sure[t] = (unsigned char)((in_place & 1) && (in_place & ELAB_SITE_SURE));
 }

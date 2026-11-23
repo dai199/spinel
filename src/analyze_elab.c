@@ -627,7 +627,12 @@ ElabPos elab_child(Compiler *c, int p, int ch, const ElabPos *pp) {
       if (!spine) { q.defer = runs == ELAB_BLK_UNKNOWN; break; }
       q.kind = EP_SPINE;
       if (runs == ELAB_BLK_UNKNOWN) q.may = q.fmay = q.kept = 1;
-      if (elab_opens_frame(nt, p)) { q.frame = pp->e; q.fmay = q.fpartial = q.bmay = q.blk = q.skip = q.unsure = 0; if (q.rescued) q.rescued = 2; break; }
+      if (elab_opens_frame(nt, p)) {
+        q.frame = pp->e; q.fmay = q.fpartial = q.bmay = q.blk = q.skip = q.unsure = 0;
+        if (q.rescued) q.rescued = 2;
+        if (nt_safe_nav(nt, p)) q.may = q.fmay = 1;   /* (`x&.class_eval { }`: a nil x skips the block) */
+        break;
+      }
       q.partial = q.fpartial = q.blk = 1; q.rep = pp->e;   /* an iterator's: zero times, or several */
       /* (by its row's run count: surely no time skips its body, not surely once makes it unsure, a `&.` call's too) */
       int sure, cnt = lr_block_count(c, p, runs == ELAB_BLK_NOW, &sure);
@@ -823,7 +828,7 @@ static int elab_site_part(void *ud, int id, ElabPos *q) {
   if (q->kind == EP_NEW) q->kind = EP_SPINE;
   if (nt_kind(s->nt, id) == NK_LoadNode) {
     int place = q->kind != EP_NODE && !(q->bits & LR_LATE);
-    int sure = place && !q->may && !q->fmay && !q->partial && !q->fpartial && !q->defer;
+    int sure = place && !q->may && !q->fmay && !q->partial && !q->fpartial && !q->defer && !q->kept && !q->skip && !q->unsure;
     s->fn(s->ud, id, place | (sure ? ELAB_SITE_SURE : 0));
   }
   return 1;
