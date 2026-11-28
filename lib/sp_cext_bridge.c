@@ -395,12 +395,9 @@ int rb_proc_arity(VALUE proc) {
 void rb_ext_ractor_safe(bool safe) { (void)safe; }
 /* StringValue's conversion: what to_str answered (Qundef when the object has
  * no to_str), checked as CRuby's rb_string_value checks it */
-static const char *convert_name(VALUE value) {
-    return value==Qnil ? "nil" : value==Qtrue ? "true" : value==Qfalse ? "false" : rb_class2name(rb_obj_class(value));
-}
 VALUE sp_cext_check_convert(VALUE value,int type,const char *tname,const char *method,VALUE converted) {
     if(converted==Qnil || rb_type(converted)==type)return converted;
-    const char *name=convert_name(value);
+    const char *name=rb_class2name(rb_obj_class(value));
     rb_raise(rb_eTypeError,"can't convert %s to %s (%s#%s gives %s)",name,tname,name,method,rb_class2name(rb_obj_class(converted)));
 }
 VALUE sp_cext_to_str(VALUE value,VALUE converted) {
@@ -590,6 +587,10 @@ VALUE rb_enc_associate_index(VALUE value,int index) {
 }
 VALUE rb_utf8_str_new_cstr(const char *bytes) { return rb_utf8_str_new(bytes,(long)strlen(bytes)); }
 VALUE rb_enc_str_new(const char *bytes,long length,rb_encoding *encoding) {
+    /* not answered as UTF-8: a String carries no US-ASCII mark, and these bytes would then decode */
+    if(encoding==&usascii && bytes)
+        for(long i=0;i<length;i++)
+            if((unsigned char)bytes[i]>=0x80)rb_raise(rb_eArgError,"a US-ASCII String of non-ASCII bytes is not supported");
     VALUE value=rb_str_new(bytes,length);
     return encoding ? rb_enc_associate(value,encoding) : value;
 }
@@ -622,7 +623,7 @@ unsigned int rb_enc_codepoint_len(const char *p,const char *e,int *length,rb_enc
 VALUE rb_str_new_frozen(VALUE value) {
     if(rb_type(value)!=T_STRING)rb_raise(rb_eTypeError,"expected a String");
     sp_RbVal r=sp_cext_rbval(value);
-    if(!(r.tag==SP_TAG_OBJ && r.cls_id==SP_BUILTIN_STRBUF) || sp_String_is_immutable(r.v.p))return value;
+    if(!(r.tag==SP_TAG_OBJ && r.cls_id==SP_BUILTIN_STRBUF) || sp_String_is_frozen(r.v.p))return value;
     VALUE copy=rb_str_new(RSTRING_PTR(value),RSTRING_LEN(value));
     rb_enc_associate_index(copy,rb_enc_get_index(value));
     return rb_str_freeze(copy);

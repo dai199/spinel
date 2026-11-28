@@ -214,7 +214,7 @@ long sp_cext_string_len(VALUE);
 /* a frozen String of the same bytes and encoding: the String itself when it is frozen already */
 VALUE rb_str_new_frozen(VALUE);
 /* CRuby's locale-independent ctype (ruby/internal/ctype.h) */
-#define rb_isspace(c) ((c) == ' ' || ('\t' <= (c) && (c) <= '\r'))
+static inline int rb_isspace(int c) { return c == ' ' || ('\t' <= c && c <= '\r'); }
 char *sp_cext_string_cstr(VALUE);
 #define StringValuePtr(v) sp_cext_string_ptr((v))
 #define StringValueCStr(v) sp_cext_string_cstr((v))

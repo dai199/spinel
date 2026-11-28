@@ -81,8 +81,8 @@ void rb_iter_break_value(VALUE) SP_CEXT_NORETURN;
  * call site's literal, so the scanner records it as it does StringValue's */
 VALUE sp_cext_check_convert(VALUE, int, const char *, const char *, VALUE);
 #define rb_check_convert_type(v, t, tname, method) ({ VALUE sp_cc_v_ = (v); int sp_cc_t_ = (t); \
-  rb_type(sp_cc_v_) == sp_cc_t_ ? sp_cc_v_ : sp_cext_check_convert(sp_cc_v_, sp_cc_t_, (tname), (method), \
-    rb_respond_to(sp_cc_v_, rb_intern(method)) ? rb_funcall(sp_cc_v_, rb_intern(method), 0) : Qnil); })
+  rb_type(sp_cc_v_) == sp_cc_t_ && sp_cc_t_ != T_DATA ? sp_cc_v_ : sp_cext_check_convert(sp_cc_v_, sp_cc_t_, (tname), (method), \
+    rb_obj_respond_to(sp_cc_v_, rb_intern(method), 1) ? rb_funcall(sp_cc_v_, rb_intern(method), 0) : Qnil); })
 #define rb_obj_respond_to(obj, id, priv) \
   RTEST(rb_funcall((obj), rb_intern("respond_to?"), 2, ID2SYM(id), (priv) ? Qtrue : Qfalse))
 #endif
