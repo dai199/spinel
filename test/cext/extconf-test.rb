@@ -36,7 +36,10 @@ Dir.mktmpdir('spinel-extconf-test-') do |dir|
   File.write(makefile, File.read(makefile).sub('-Wall', '-Wall -lm'))
   linked = CextExtconf.recipe(makefile)
   raise 'a CFLAGS library was not linked' unless linked.fetch('libs').include?('-lm') && !linked.fetch('cflags').include?('-lm')
-  File.write(makefile, File.read(makefile).sub('-Wall -lm', '-Wall'))
+  File.write(makefile, File.read(makefile).sub('-Wall -lm', '-Wall -lruby.4.0').sub('$(LIBRUBYARG_SHARED)', '-l ruby.4.0'))
+  separated = CextExtconf.recipe(makefile)
+  raise "host CRuby's library linked from CFLAGS or a separated -l" if separated.fetch('libs').include?('-lruby.4.0')
+  File.write(makefile, File.read(makefile).sub('-Wall -lruby.4.0', '-Wall').sub('-l ruby.4.0', '$(LIBRUBYARG_SHARED)'))
   CextRecord.validate_flags(recipe.fetch('cflags'))
   File.write(makefile, File.read(makefile).sub('-Wall', '-include custom.h'))
   begin

@@ -142,7 +142,6 @@ module CextExtconf
     link_words = Shellwords.split(%w[LOCAL_LIBS LIBS DLDFLAGS].map { |key| get.call(key) }.join(' '))
     # Not the host CRuby's own library, which mkmf's LIBS names for a shared-libruby Ruby: the extension links into a Spinel program.
     libruby = ['-l' + get.call('RUBY_SO_NAME'), get.call('LIBRUBY'), get.call('LIBRUBY_A')].reject { |word| word.empty? || word == '-l' }
-    link_words = link_words.reject { |word| libruby.include?(word) }
     libs = cflag_libs.dup
     index = 0
     while index < link_words.length
@@ -155,6 +154,7 @@ module CextExtconf
       libs << word if word.start_with?('-l', '-L') || word.end_with?('.a', '.so', '.dylib')
       index += 1
     end
+    libs = libs.reject { |word| libruby.include?(word) }
     libs = libs.map { |word| word.start_with?('-L') ? '-L' + File.expand_path(word[2..], dir) : word.start_with?('-l') ? word : File.expand_path(word, dir) }
     prefix = get.call('target_prefix').sub(/\A\//, '')
     feature = prefix.empty? ? name : prefix + '/' + name
