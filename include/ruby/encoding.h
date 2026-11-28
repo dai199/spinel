@@ -28,4 +28,12 @@ VALUE rb_enc_interned_str_cstr(const char *, rb_encoding *);
 VALUE rb_str_encode(VALUE, VALUE, int, VALUE);
 VALUE rb_str_export_to_enc(VALUE, rb_encoding *);
 rb_encoding *rb_default_internal_encoding(void);
+#define ENCODING_GET(v) rb_enc_get_index((VALUE)(v))
+VALUE rb_enc_str_new(const char *, long, rb_encoding *);
+const char *rb_enc_name(rb_encoding *);
+/* UTF-8 and UTF-16 take up to 4 bytes a character; ASCII-8BIT and US-ASCII one */
+int rb_enc_mbmaxlen(rb_encoding *);
+/* the character at p before e and its byte length, raising ArgumentError on an
+ * empty or invalid sequence as CRuby does */
+unsigned int rb_enc_codepoint_len(const char *, const char *, int *, rb_encoding *);
 #endif

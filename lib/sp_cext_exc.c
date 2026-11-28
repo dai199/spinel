@@ -167,6 +167,11 @@ void rb_raise(VALUE klass, const char *fmt, ...) {
     SP_GC_ROOT_STR(message);
     rb_exc_raise(new_exception(name, message));
 }
+void rb_error_arity(int argc, int min, int max) {
+    if (min == max) rb_raise(rb_eArgError, "wrong number of arguments (given %d, expected %d)", argc, min);
+    if (max == UNLIMITED_ARGUMENTS) rb_raise(rb_eArgError, "wrong number of arguments (given %d, expected %d+)", argc, min);
+    rb_raise(rb_eArgError, "wrong number of arguments (given %d, expected %d..%d)", argc, min, max);
+}
 void rb_exc_raise(VALUE value) {
     sp_Exception *e = exception(value);
     sp_cext_set_errinfo(value);

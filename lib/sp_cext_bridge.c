@@ -395,6 +395,14 @@ int rb_proc_arity(VALUE proc) {
 void rb_ext_ractor_safe(bool safe) { (void)safe; }
 /* StringValue's conversion: what to_str answered (Qundef when the object has
  * no to_str), checked as CRuby's rb_string_value checks it */
+static const char *convert_name(VALUE value) {
+    return value==Qnil ? "nil" : value==Qtrue ? "true" : value==Qfalse ? "false" : rb_class2name(rb_obj_class(value));
+}
+VALUE sp_cext_check_convert(VALUE value,int type,const char *tname,const char *method,VALUE converted) {
+    if(converted==Qnil || rb_type(converted)==type)return converted;
+    const char *name=convert_name(value);
+    rb_raise(rb_eTypeError,"can't convert %s to %s (%s#%s gives %s)",name,tname,name,method,rb_class2name(rb_obj_class(converted)));
+}
 VALUE sp_cext_to_str(VALUE value,VALUE converted) {
     const char *name=value==Qnil ? "nil" : value==Qtrue ? "true" : value==Qfalse ? "false" : rb_class2name(rb_obj_class(value));
     if(converted==Qundef)rb_raise(rb_eTypeError,"no implicit conversion of %s into String",name);
@@ -581,6 +589,44 @@ VALUE rb_enc_associate_index(VALUE value,int index) {
     return rb_enc_associate(value,encoding);
 }
 VALUE rb_utf8_str_new_cstr(const char *bytes) { return rb_utf8_str_new(bytes,(long)strlen(bytes)); }
+VALUE rb_enc_str_new(const char *bytes,long length,rb_encoding *encoding) {
+    VALUE value=rb_str_new(bytes,length);
+    return encoding ? rb_enc_associate(value,encoding) : value;
+}
+const char *rb_enc_name(rb_encoding *encoding) { return encoding->name; }
+int rb_enc_mbmaxlen(rb_encoding *encoding) { return encoding==&utf8 || encoding==&utf16le || encoding==&utf16be ? 4 : 1; }
+static unsigned int utf8_codepoint(const unsigned char *p,const unsigned char *e,int *length) {
+    unsigned int c=p[0];
+    int n=c<0x80 ? 1 : (c&0xe0)==0xc0 ? 2 : (c&0xf0)==0xe0 ? 3 : (c&0xf8)==0xf0 ? 4 : 0;
+    if(!n || e-p<n)return 0xffffffffu;
+    if(n==1) { *length=1;return c; }
+    unsigned int cp=c&(0x7fu>>n);
+    for(int i=1;i<n;i++) { if((p[i]&0xc0)!=0x80)return 0xffffffffu; cp=(cp<<6)|(p[i]&0x3fu); }
+    static const unsigned int least[]={0,0,0x80,0x800,0x10000};
+    if(cp<least[n] || cp>0x10ffff || (cp>=0xd800 && cp<=0xdfff))return 0xffffffffu;
+    *length=n;return cp;
+}
+unsigned int rb_enc_codepoint_len(const char *p,const char *e,int *length,rb_encoding *encoding) {
+    if(e<=p)rb_raise(rb_eArgError,"empty string");
+    const unsigned char *u=(const unsigned char *)p;
+    unsigned int cp;
+    int n=1;
+    if(encoding==&utf8)cp=utf8_codepoint(u,(const unsigned char *)e,&n);
+    else if(encoding==&ascii8bit)cp=u[0];
+    else if(encoding==&usascii)cp=u[0]<0x80 ? u[0] : 0xffffffffu;
+    else rb_raise(rb_eArgError,"%s codepoints are not supported",encoding->name);
+    if(cp==0xffffffffu)rb_raise(rb_eArgError,"invalid byte sequence in %s",encoding->name);
+    if(length)*length=n;
+    return cp;
+}
+VALUE rb_str_new_frozen(VALUE value) {
+    if(rb_type(value)!=T_STRING)rb_raise(rb_eTypeError,"expected a String");
+    sp_RbVal r=sp_cext_rbval(value);
+    if(!(r.tag==SP_TAG_OBJ && r.cls_id==SP_BUILTIN_STRBUF) || sp_String_is_immutable(r.v.p))return value;
+    VALUE copy=rb_str_new(RSTRING_PTR(value),RSTRING_LEN(value));
+    rb_enc_associate_index(copy,rb_enc_get_index(value));
+    return rb_str_freeze(copy);
+}
 VALUE rb_enc_interned_str_cstr(const char *bytes,rb_encoding *encoding) {
     VALUE value=rb_utf8_str_new_cstr(bytes);
     if(encoding==&ascii8bit)sp_String_force_encoding(string(value),1);

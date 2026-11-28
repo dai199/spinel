@@ -1,0 +1,20 @@
+[[97, 1], [233, 2], [8364, 3], [128512, 4]]
+[[255, 1], [65, 1]]
+"invalid byte sequence in UTF-8"
+"invalid byte sequence in UTF-8"
+"invalid byte sequence in UTF-8"
+"invalid byte sequence in UTF-8"
+"empty string"
+[true, false, true]
+[["UTF-8", 4], ["ASCII-8BIT", 1]]
+["café", "UTF-8"]
+"as is"
+"7"
+"named"
+"can't convert Wrong to String (Wrong#to_s gives Integer)"
+["open", true, false, "UTF-8", false]
+[true, false, "ASCII-8BIT"]
+"wrong number of arguments (given 0, expected 1)"
+"wrong number of arguments (given 3, expected 1+)"
+"wrong number of arguments (given 5, expected 0..2)"
+1

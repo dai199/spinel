@@ -325,6 +325,13 @@ char *sp_cext_string_ptr(VALUE v) { (void)v;DENIED("RSTRING_PTR"); }
 long sp_cext_string_len(VALUE v) { (void)v;DENIED("RSTRING_LEN"); }
 VALUE rb_str_cat(VALUE v,const char *s,long n) { (void)v;(void)s;(void)n;DENIED("rb_str_cat"); }
 VALUE rb_str_cat_cstr(VALUE v,const char *s) { (void)v;(void)s;DENIED("rb_str_cat_cstr"); }
+VALUE rb_str_new_frozen(VALUE v) { (void)v;DENIED("rb_str_new_frozen"); }
+VALUE rb_enc_str_new(const char *s,long n,rb_encoding *e) { (void)s;(void)n;(void)e;DENIED("rb_enc_str_new"); }
+const char *rb_enc_name(rb_encoding *e) { (void)e;DENIED("rb_enc_name"); }
+int rb_enc_mbmaxlen(rb_encoding *e) { (void)e;DENIED("rb_enc_mbmaxlen"); }
+unsigned int rb_enc_codepoint_len(const char *p,const char *e,int *n,rb_encoding *enc) { (void)p;(void)e;(void)n;(void)enc;DENIED("rb_enc_codepoint_len"); }
+VALUE sp_cext_check_convert(VALUE v,int t,const char *n,const char *m,VALUE c) { (void)v;(void)t;(void)n;(void)m;(void)c;DENIED("rb_check_convert_type"); }
+void rb_error_arity(int a,int mn,int mx) { (void)a;(void)mn;(void)mx;DENIED("rb_error_arity"); }
 VALUE rb_ary_new(void) { DENIED("rb_ary_new"); }
 VALUE rb_hash_new(void) { DENIED("rb_hash_new"); }
 char *sp_cext_string_cstr(VALUE v) { (void)v;DENIED("StringValueCStr"); }

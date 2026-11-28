@@ -210,6 +210,11 @@ char *sp_cext_string_ptr(VALUE);
 long sp_cext_string_len(VALUE);
 #define RSTRING_PTR(v) sp_cext_string_ptr(v)
 #define RSTRING_LEN(v) sp_cext_string_len(v)
+#define RSTRING_END(v) (RSTRING_PTR(v) + RSTRING_LEN(v))
+/* a frozen String of the same bytes and encoding: the String itself when it is frozen already */
+VALUE rb_str_new_frozen(VALUE);
+/* CRuby's locale-independent ctype (ruby/internal/ctype.h) */
+#define rb_isspace(c) ((c) == ' ' || ('\t' <= (c) && (c) <= '\r'))
 char *sp_cext_string_cstr(VALUE);
 #define StringValuePtr(v) sp_cext_string_ptr((v))
 #define StringValueCStr(v) sp_cext_string_cstr((v))
@@ -267,6 +272,8 @@ void rb_set_errinfo(VALUE);
 #endif
 void rb_raise(VALUE, const char *, ...) SP_CEXT_NORETURN;
 void rb_exc_raise(VALUE) SP_CEXT_NORETURN;
+#define UNLIMITED_ARGUMENTS (-1)
+void rb_error_arity(int, int, int) SP_CEXT_NORETURN;
 void rb_jump_tag(int);
 void rb_sys_fail(const char *) SP_CEXT_NORETURN;
 void rb_bug(const char *, ...) SP_CEXT_NORETURN;
