@@ -133,6 +133,11 @@ Dir.mktmpdir("cext-recorder-test-") do |dir|
   File.write(b, '#include "ruby.h"' + "\nvoid helper(void) { rb_define_module(\"Helper\"); }\n")
   check(CextRecord.record(**options.merge(sources: [a,b]))["definitions"].first["path"] == "Helper", "cross-TU definition")
 
+  # A frame larger than a page: Apple's clang probes it with __chkstk_darwin, which the compiler inserts as it does __stack_chk_fail (blurhash, bcrypt_pbkdf).
+  File.write(a, '#include "ruby.h"' + "\nextern void helper(char *); void Init_sample(void) { char big[65536]; helper(big); }\n")
+  File.write(b, '#include "ruby.h"' + "\nvoid helper(char *buf) { buf[0] = 0; rb_define_module(\"Helper\"); }\n")
+  check(CextRecord.record(**options.merge(sources: [a,b]))["definitions"].first["path"] == "Helper", "a page-sized frame's stack probe")
+
   # A macro-produced literal survives preprocessing; comments do not create IDs.
   text = "# 1 \"fixture.c\"\nrb_intern(\"str\" \"ip\"); rb_funcall(v, id, 1, (a,b));"
   check(CextRecord.scan(text).first(2) == [["strip"], [1]], "nested argument tokenization")

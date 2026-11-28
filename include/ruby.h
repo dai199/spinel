@@ -6,7 +6,9 @@
    header as its config.h does: the GNU / Darwin feature macros, so a
    -std=c11 build still declares clock_gettime and getpid, and <time.h>,
    <unistd.h>, bool and rb_pid_t (sqlite3 keeps a struct timespec deadline
-   and the pid that opened the database) */
+   and the pid that opened the database), and the C library headers it
+   includes on every platform, so memcpy, calloc, snprintf, isspace, errno
+   and va_list need no include of the extension's own (ed25519, lz4-ruby) */
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE 1
 #endif
@@ -20,8 +22,15 @@
 #include <stdbool.h>
 #include <time.h>
 #include <sys/types.h>
+#include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+#include <errno.h>
 #ifndef _WIN32
 #include <unistd.h>
+#include <strings.h>
 #endif
 
 #ifdef __cplusplus

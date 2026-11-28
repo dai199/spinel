@@ -110,6 +110,7 @@ module CextExtconf
     ruby_dirs = %w[hdrdir rubyhdrdir arch_hdrdir rubyarchhdrdir].map { |key| File.expand_path(get.call(key), dir) }.uniq
     words = Shellwords.split(%w[INCFLAGS CPPFLAGS CFLAGS].map { |key| get.call(key) }.join(' '))
     flags = []
+    cflag_libs = []
     index = 0
     while index < words.length
       word = words[index]
@@ -130,13 +131,19 @@ module CextExtconf
         raise Refusal, 'extconf preincluded headers require an explicit [cext.*] recipe' unless words[index] == 'stdbool.h'
       elsif word.start_with?('-D', '-U', '-std=', '-O', '-W', '-g', '-f') || word == '-pipe' || word == '-pthread'
         flags << word
+      elsif word.match?(/\A-l[A-Za-z0-9_.+-]+\z/)
+        # mkmf links with CFLAGS too, so CRuby links a library named there (blurhash's `$CFLAGS += ' -lm'`).
+        cflag_libs << word
       else
         raise Refusal, "unsupported extconf compiler flag #{word.inspect}; provide [cext.*] in spin.toml"
       end
       index += 1
     end
     link_words = Shellwords.split(%w[LOCAL_LIBS LIBS DLDFLAGS].map { |key| get.call(key) }.join(' '))
-    libs = []
+    # Not the host CRuby's own library, which mkmf's LIBS names for a shared-libruby Ruby: the extension links into a Spinel program.
+    libruby = ['-l' + get.call('RUBY_SO_NAME'), get.call('LIBRUBY'), get.call('LIBRUBY_A')].reject { |word| word.empty? || word == '-l' }
+    link_words = link_words.reject { |word| libruby.include?(word) }
+    libs = cflag_libs.dup
     index = 0
     while index < link_words.length
       word = link_words[index]

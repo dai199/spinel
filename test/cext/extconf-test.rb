@@ -19,7 +19,9 @@ Dir.mktmpdir('spinel-extconf-test-') do |dir|
     CPPFLAGS = -DEXAMPLE=7
     CFLAGS = -arch arm64 -O3 -fno-fast-math -ggdb3 -Wall -fstack-clash-protection -fcf-protection -ffile-prefix-map=/build=/src
     LOCAL_LIBS = vendor/libsample.a
-    LIBS = -lssl -lcrypto
+    RUBY_SO_NAME = ruby.4.0
+    LIBRUBYARG_SHARED = -l$(RUBY_SO_NAME)
+    LIBS = $(LIBRUBYARG_SHARED) -lssl -lcrypto
     DLDFLAGS = -shared -L vendor
   MAKE
   recipe = CextExtconf.recipe(makefile)
@@ -29,6 +31,12 @@ Dir.mktmpdir('spinel-extconf-test-') do |dir|
   raise 'extension definition lost' unless recipe.fetch('cflags').include?('-DEXAMPLE=7')
   raise 'native library path lost' unless recipe.fetch('libs').include?(File.join(dir, 'vendor/libsample.a'))
   raise 'library search path lost' unless recipe.fetch('libs').include?('-L' + File.join(dir, 'vendor'))
+  raise "host CRuby's library linked" if recipe.fetch('libs').include?('-lruby.4.0')
+  raise 'native library lost' unless recipe.fetch('libs').include?('-lssl')
+  File.write(makefile, File.read(makefile).sub('-Wall', '-Wall -lm'))
+  linked = CextExtconf.recipe(makefile)
+  raise 'a CFLAGS library was not linked' unless linked.fetch('libs').include?('-lm') && !linked.fetch('cflags').include?('-lm')
+  File.write(makefile, File.read(makefile).sub('-Wall -lm', '-Wall'))
   CextRecord.validate_flags(recipe.fetch('cflags'))
   File.write(makefile, File.read(makefile).sub('-Wall', '-include custom.h'))
   begin

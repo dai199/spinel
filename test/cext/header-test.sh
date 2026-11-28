@@ -17,6 +17,21 @@ int main(void) {
 EOF
 ${CC:-cc} -std=c11 -Wall -Wextra -Werror -Iinclude "$tmp/libc.c" -o "$tmp/libc"
 "$tmp/libc"
+# and the C library headers it includes: an extension calls memcpy, calloc, snprintf, isspace and errno with no include of its own (ed25519, lz4-ruby)
+cat > "$tmp/clib.c" <<'EOF'
+#include <ruby.h>
+static int sum(int n, ...) { va_list ap; int t = 0; va_start(ap, n); while (n-- > 0) t += va_arg(ap, int); va_end(ap); return t; }
+int main(void) {
+    char buf[16], *copy = calloc(4, 1);
+    errno = 0;
+    memcpy(copy, "ab", 3);
+    snprintf(buf, sizeof buf, "%s%d", copy, sum(2, 1, 2));
+    free(copy);
+    return strcmp(buf, "ab3") == 0 && isspace(' ') && strcasecmp("A", "a") == 0 && errno == 0 ? 0 : 1;
+}
+EOF
+${CC:-cc} -std=c11 -Wall -Wextra -Werror -Iinclude "$tmp/clib.c" -o "$tmp/clib"
+"$tmp/clib"
 "$tmp/immediates"
 for api in RBASIC ROBJECT RSTRUCT; do
     printf '#include <ruby.h>\nint main(void) { return %s(Qnil) != 0; }\n' "$api" > "$tmp/refuse.c"

@@ -24,7 +24,8 @@ module CextRecord
   LIBC = %w[malloc calloc realloc free memcpy memmove memset memcmp strlen
             strcmp strncmp strcpy strncpy strcat strchr strrchr strstr
             __stack_chk_fail __stack_chk_guard __memcpy_chk __memmove_chk
-            __memset_chk __strcpy_chk __strncpy_chk __strcat_chk].freeze
+            __memset_chk __strcpy_chk __strncpy_chk __strcat_chk
+            __chkstk_darwin].freeze
   OUTLINE_ATOMICS = /\A__aarch64_(?:cas|swp|ld(?:add|clr|eor|set))(?:1|2|4|8|16)_(?:relax|acq|rel|acq_rel|sync)\z/
   # Match C tokens after preprocessing, not source-text strings/comments.
   TOKEN = /"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[A-Za-z_][A-Za-z_0-9]*|(?:0[xX][0-9a-fA-F]+|[0-9]+)[uUlL]*|[^\s]/m
