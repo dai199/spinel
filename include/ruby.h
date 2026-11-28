@@ -90,6 +90,8 @@ static inline SIGNED_VALUE sp_cext_fix2long(VALUE v) {
 #define LONG2FIX INT2FIX
 #define FIX2LONG(v) sp_cext_fix2long((VALUE)(v))
 #define FIX2INT(v) ((int)FIX2LONG(v))
+#define RB_INT2FIX INT2FIX
+#define FIX2ULONG(v) ((unsigned long)FIX2LONG(v))
 int rb_num2int(VALUE);
 VALUE rb_ll2inum(long long);
 VALUE rb_float_new(double);
@@ -105,9 +107,21 @@ long long rb_num2ll(VALUE);
 unsigned long rb_num2ulong(VALUE);
 #define NUM2ULONG(v) rb_num2ulong((VALUE)(v))
 #define NUM2SIZET(v) ((size_t)rb_num2ulong((VALUE)(v)))
+/* the narrower conversions take CRuby's ranges: a negative number down to the
+   signed type's minimum wraps, past either end raises its RangeError */
+unsigned int rb_num2uint(VALUE);
+short rb_num2short(VALUE);
+unsigned short rb_num2ushort(VALUE);
+char rb_num2chr(VALUE);
+#define NUM2UINT(v) rb_num2uint((VALUE)(v))
+#define FIX2UINT(v) rb_num2uint((VALUE)(v))
+#define NUM2SHORT(v) rb_num2short((VALUE)(v))
+#define NUM2USHORT(v) rb_num2ushort((VALUE)(v))
+#define NUM2CHR(v) rb_num2chr((VALUE)(v))
 VALUE rb_ull2inum(unsigned long long);
 #define ULL2NUM(v) rb_ull2inum((unsigned long long)(v))
 #define ULONG2NUM(v) ULL2NUM((unsigned long)(v))
+#define UINT2NUM(v) ULL2NUM((unsigned int)(v))
 #define SIZET2NUM(v) ULL2NUM((size_t)(v))
 double rb_num2dbl(VALUE);
 #define NUM2DBL(v) rb_num2dbl((VALUE)(v))
@@ -217,6 +231,16 @@ VALUE rb_str_cat(VALUE, const char *, long);
 VALUE rb_str_cat_cstr(VALUE, const char *);
 #define rb_str_buf_cat rb_str_cat
 #define rb_str_buf_cat2 rb_str_cat_cstr
+/* a String filled in place through RSTRING_PTR: grown or cut to a length,
+   checked writable, or set to the length the extension wrote */
+VALUE rb_str_resize(VALUE, long);
+void rb_str_modify(VALUE);
+void rb_str_modify_expand(VALUE, long);
+void rb_str_set_len(VALUE, long);
+VALUE rb_str_buf_new(long);
+/* $VERBOSE is CRuby's default false: rb_warn prints, rb_warning does not */
+void rb_warn(const char *, ...);
+void rb_warning(const char *, ...);
 VALUE rb_str_plus(VALUE, VALUE);
 VALUE rb_sym2str(VALUE);
 int rb_proc_arity(VALUE);

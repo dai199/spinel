@@ -325,6 +325,13 @@ char *sp_cext_string_ptr(VALUE v) { (void)v;DENIED("RSTRING_PTR"); }
 long sp_cext_string_len(VALUE v) { (void)v;DENIED("RSTRING_LEN"); }
 VALUE rb_str_cat(VALUE v,const char *s,long n) { (void)v;(void)s;(void)n;DENIED("rb_str_cat"); }
 VALUE rb_str_cat_cstr(VALUE v,const char *s) { (void)v;(void)s;DENIED("rb_str_cat_cstr"); }
+VALUE rb_str_resize(VALUE v,long n) { (void)v;(void)n;DENIED("rb_str_resize"); }
+void rb_str_modify(VALUE v) { (void)v;DENIED("rb_str_modify"); }
+void rb_str_modify_expand(VALUE v,long n) { (void)v;(void)n;DENIED("rb_str_modify_expand"); }
+void rb_str_set_len(VALUE v,long n) { (void)v;(void)n;DENIED("rb_str_set_len"); }
+VALUE rb_str_buf_new(long n) { (void)n;DENIED("rb_str_buf_new"); }
+void rb_warn(const char *s,...) { (void)s;DENIED("rb_warn"); }
+void rb_warning(const char *s,...) { (void)s;DENIED("rb_warning"); }
 VALUE rb_ary_new(void) { DENIED("rb_ary_new"); }
 VALUE rb_hash_new(void) { DENIED("rb_hash_new"); }
 char *sp_cext_string_cstr(VALUE v) { (void)v;DENIED("StringValueCStr"); }
@@ -394,6 +401,10 @@ ID sp_cext_scanned_sym2id(VALUE v) { return (ID)(v >> RUBY_SPECIAL_SHIFT); }
 VALUE rb_str_intern(VALUE v) { (void)v;DENIED("rb_str_intern"); }
 long long rb_num2ll(VALUE v) { (void)v;DENIED("NUM2LL"); }
 unsigned long rb_num2ulong(VALUE v) { (void)v;DENIED("NUM2ULONG"); }
+unsigned int rb_num2uint(VALUE v) { (void)v;DENIED("NUM2UINT"); }
+short rb_num2short(VALUE v) { (void)v;DENIED("NUM2SHORT"); }
+unsigned short rb_num2ushort(VALUE v) { (void)v;DENIED("NUM2USHORT"); }
+char rb_num2chr(VALUE v) { (void)v;DENIED("NUM2CHR"); }
 VALUE rb_ull2inum(unsigned long long n) { (void)n;DENIED("ULL2NUM"); }
 double rb_num2dbl(VALUE v) { (void)v;DENIED("NUM2DBL"); }
 int rb_integer_pack(VALUE v,void *w,size_t n,size_t s,size_t nails,int flags) { (void)v;(void)w;(void)n;(void)s;(void)nails;(void)flags;DENIED("rb_integer_pack"); }

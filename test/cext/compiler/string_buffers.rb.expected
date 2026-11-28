@@ -1,0 +1,18 @@
+["abcdefghijklmnopqrstuvwxyzabcd", 30, "ASCII-8BIT"]
+""
+[97, 98]
+4
+["idmmn", true]
+"hello"
+FrozenError
+["buffered", 8]
+4294967295
+4294967295
+"integer 4294967296 too big to convert to 'unsigned int'"
+"integer -2147483649 too small to convert to 'unsigned int'"
+[65535, 65535, -32768]
+"integer 65536 too big to convert to 'unsigned short'"
+"integer -32769 too small to convert to 'unsigned short'"
+"integer 32768 too big to convert to 'short'"
+[65, 65]
+nil

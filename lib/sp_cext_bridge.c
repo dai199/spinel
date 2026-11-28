@@ -311,6 +311,29 @@ long long rb_num2ll(VALUE value) {
 }
 /* NUM2ULONG: a negative number wraps, as CRuby's rb_num2ulong */
 unsigned long rb_num2ulong(VALUE value) { return (unsigned long)rb_num2long(value); }
+unsigned int rb_num2uint(VALUE value) {
+    long number=rb_num2long(value);
+    if(number>(long)UINT_MAX)rb_raise(rb_eRangeError,"integer %ld too big to convert to 'unsigned int'",number);
+    if(number<INT_MIN)rb_raise(rb_eRangeError,"integer %ld too small to convert to 'unsigned int'",number);
+    return (unsigned int)number;
+}
+short rb_num2short(VALUE value) {
+    long number=rb_num2long(value);
+    if(number>SHRT_MAX)rb_raise(rb_eRangeError,"integer %ld too big to convert to 'short'",number);
+    if(number<SHRT_MIN)rb_raise(rb_eRangeError,"integer %ld too small to convert to 'short'",number);
+    return (short)number;
+}
+unsigned short rb_num2ushort(VALUE value) {
+    long number=rb_num2long(value);
+    if(number>USHRT_MAX)rb_raise(rb_eRangeError,"integer %ld too big to convert to 'unsigned short'",number);
+    if(number<SHRT_MIN)rb_raise(rb_eRangeError,"integer %ld too small to convert to 'unsigned short'",number);
+    return (unsigned short)number;
+}
+/* NUM2CHR: a String's first byte, else the number's low byte, as CRuby's rb_num2char_inline */
+char rb_num2chr(VALUE value) {
+    if(RB_TYPE_P(value,T_STRING) && RSTRING_LEN(value)>=1)return RSTRING_PTR(value)[0];
+    return (char)(rb_num2int(value)&0xff);
+}
 VALUE rb_ull2inum(unsigned long long number) {
     if(number<=(unsigned long long)INT64_MAX)return sp_cext_value(sp_box_int((int64_t)number));
     /* past the word: twice its upper 63 bits, plus its low bit */
@@ -609,6 +632,42 @@ long sp_cext_string_len(VALUE v) {
 }
 VALUE rb_str_cat(VALUE v,const char *s,long len) { if(len<0)rb_raise(rb_eArgError,"negative string size");sp_String_append_n(string(v),s,(size_t)len);return v; }
 VALUE rb_str_cat_cstr(VALUE v,const char *s) { return rb_str_cat(v,s,(long)strlen(s)); }
+static sp_String *writable_string(VALUE v) {
+    sp_String *s=string(v);
+    if(sp_String_is_immutable(s))sp_raise_frozen_str(s->data);
+    return s;
+}
+static void string_room(sp_String *s,long len) {
+    if(len>INT64_MAX/2-64)rb_raise(rb_eArgError,"string size too big");
+    if(!sp_fd_grow(s,len))rb_raise(rb_eNoMemError,"string allocation failed");
+}
+/* the bytes past the old length are zero, where CRuby leaves them unset */
+VALUE rb_str_resize(VALUE v,long len) {
+    if(len<0)rb_raise(rb_eArgError,"negative string size (or size too big)");
+    sp_String *s=writable_string(v);
+    if(len>s->len) { string_room(s,len);memset(s->data+s->len,0,(size_t)(len-s->len)); }
+    s->len=len;s->data[len]=0;sp_fd_publish(s);
+    return v;
+}
+/* the extension is about to write the bytes: what was cached of them is dropped now */
+void rb_str_modify(VALUE v) { sp_fd_publish(writable_string(v)); }
+void rb_str_modify_expand(VALUE v,long expand) {
+    if(expand<0)rb_raise(rb_eArgError,"negative expanding string size");
+    sp_String *s=writable_string(v);
+    if(expand>INT64_MAX/2-64-s->len)rb_raise(rb_eArgError,"string size too big");
+    string_room(s,s->len+expand);sp_fd_publish(s);
+}
+void rb_str_set_len(VALUE v,long len) {
+    sp_String *s=writable_string(v);
+    if(len<0||len>s->cap)rb_raise(rb_eArgError,"probable buffer overflow: %ld for %ld",len,(long)s->cap);
+    s->len=len;s->data[len]=0;sp_fd_publish(s);
+}
+VALUE rb_str_buf_new(long capacity) {
+    if(capacity<0)rb_raise(rb_eArgError,"negative string size (or size too big)");
+    VALUE v=rb_str_new("",0);
+    string_room(string(v),capacity);
+    return v;
+}
 static sp_PolyArray *array(VALUE value) {
     sp_RbVal r=sp_cext_rbval(value);
     if(r.tag==SP_TAG_OBJ && r.cls_id==SP_BUILTIN_POLY_ARRAY)return r.v.p;

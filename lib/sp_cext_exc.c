@@ -167,6 +167,13 @@ void rb_raise(VALUE klass, const char *fmt, ...) {
     SP_GC_ROOT_STR(message);
     rb_exc_raise(new_exception(name, message));
 }
+/* without CRuby's "file:line: " prefix: the Ruby frame that called the extension is not known here */
+void rb_warn(const char *fmt, ...) {
+    va_list args; va_start(args, fmt);
+    const char *message = format(fmt, args); va_end(args);
+    fprintf(stderr, "warning: %s\n", message);
+}
+void rb_warning(const char *fmt, ...) { (void)fmt; }
 void rb_exc_raise(VALUE value) {
     sp_Exception *e = exception(value);
     sp_cext_set_errinfo(value);
