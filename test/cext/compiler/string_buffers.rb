@@ -18,6 +18,7 @@ rescue FrozenError => e
   p e.class
 end
 p Buffers.buffered
+p Buffers.reserved
 p Buffers.uint(4_294_967_295)
 p Buffers.uint(-1)
 [4_294_967_296, -2_147_483_649].each do |n|

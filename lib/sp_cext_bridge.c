@@ -665,7 +665,9 @@ void rb_str_set_len(VALUE v,long len) {
 VALUE rb_str_buf_new(long capacity) {
     if(capacity<0)rb_raise(rb_eArgError,"negative string size (or size too big)");
     VALUE v=rb_str_new("",0);
-    string_room(string(v),capacity);
+    sp_String *s=string(v);
+    /* a growth lays out a fresh payload header, which loses the ASCII-8BIT mark until it is published */
+    string_room(s,capacity);sp_fd_publish(s);
     return v;
 }
 static sp_PolyArray *array(VALUE value) {

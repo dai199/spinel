@@ -30,6 +30,12 @@ static VALUE xor_in_place(VALUE self, VALUE text, VALUE key) {
     return text;
 }
 
+static VALUE reserved(VALUE self) {
+    (void)self;
+    VALUE out = rb_str_buf_new(64);
+    return rb_ary_new_from_args(2, rb_funcall(rb_funcall(out, rb_intern("encoding"), 0), rb_intern("to_s"), 0), LONG2NUM(RSTRING_LEN(out)));
+}
+
 static VALUE buffered(VALUE self) {
     (void)self;
     VALUE out = rb_str_buf_new(64);
@@ -51,6 +57,7 @@ void Init_string_buffers(void) {
     rb_define_module_function(mod, "grow", grow, 1);
     rb_define_module_function(mod, "xor_in_place", xor_in_place, 2);
     rb_define_module_function(mod, "buffered", buffered, 0);
+    rb_define_module_function(mod, "reserved", reserved, 0);
     rb_define_module_function(mod, "uint", to_uint, 1);
     rb_define_module_function(mod, "ushort", to_ushort, 1);
     rb_define_module_function(mod, "sshort", to_short, 1);
